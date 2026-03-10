@@ -1,18 +1,18 @@
 # paperbot-python
 
+[![CI](https://github.com/CppDigest/paperbot-python/actions/workflows/ci.yml/badge.svg)](https://github.com/CppDigest/paperbot-python/actions/workflows/ci.yml)
+
 WG21 C++ paper tracker with ISO draft probing and Slack notifications.
 
-A Python rewrite of the original [Node.js paperbot](../index.js) with new capabilities: probes the isocpp.org paper system for unpublished D-paper drafts, monitors for new paper assignments at the frontier, and notifies a Slack channel when watched authors publish.
+A Python project that probes the isocpp.org paper system for unpublished D-paper drafts, monitors for new paper assignments at the frontier, and notifies a Slack channel when watched authors publish.
 
 ## Features
 
-- **Paper lookup** -- `@paperbot P2300` resolves to latest revision with title, author, date, links
-- **Full-text search** -- `@paperbot search networking` searches across paper ID, title, author, date
-- **Passive detection** -- `[P1234]` in any channel message triggers an auto-reply
+- **Author watchlist** -- `watchlist add Dietmar` notifies when watched authors publish
 - **ISO draft probing** -- Three-tier async HEAD requests to `isocpp.org/files/papers/` detect unpublished D-papers
-- **Author watchlist** -- `@paperbot watchlist add Dietmar` notifies when watched authors publish
 - **Frontier monitoring** -- Automatically probes newly assigned paper numbers beyond the current highest
-- **30-minute polling** -- Fetches wg21.link/index.json and probes isocpp.org every 30 minutes (configurable)
+- **30-minute polling** -- Fetches wg21.link/index.json every 30 minutes (configurable)
+- **Status command** -- `status` shows papers loaded, last poll time, and probe stats
 
 ## Slack App Setup
 
@@ -32,7 +32,7 @@ Go to **OAuth & Permissions** in the left sidebar. Under **Bot Token Scopes**, a
 | `chat:write.public` | Post to public channels the bot hasn't been invited to |
 | `im:history` | Read DM messages sent to the bot |
 | `im:write` | Reply to DMs |
-| `channels:history` | Read messages in public channels (for passive `[P1234]` detection) |
+| `channels:history` | Read messages in public channels |
 | `groups:history` | Read messages in private channels the bot is invited to |
 | `groups:write` | Reply in private channels |
 | `app_mentions:read` | Respond when someone `@paperbot`s |
@@ -125,10 +125,11 @@ ngrok http 3000
 
 ### 9. Verify It Works
 
-1. DM the bot: `P2300` -- should reply with P2300R10 info
-2. In a channel where the bot is present, type `[P2300]` -- should auto-reply
-3. Type `@paperbot status` -- should show papers loaded, last poll time
-4. Check your notification channel after 30 minutes -- any new papers matching your watchlist will appear there
+1. DM the bot: `status` -- should reply with papers loaded, last poll time, and probe stats
+2. DM the bot: `watchlist add Niebler` -- should confirm the author was added
+3. DM the bot: `watchlist list` -- should show the current watchlist
+4. Type `@paperbot status` in a channel -- should reply in-thread
+5. Check your notification channel after 30 minutes -- any new papers matching your watchlist will appear there
 
 ### Production Deployment
 
@@ -139,6 +140,19 @@ For a persistent deployment (the bot needs to stay running 24/7 to poll every 30
 - **Cloud VM** (any small instance works -- the bot uses minimal resources)
 
 The existing Node.js paperbot uses Ansible for deployment ([ansible-paperbot](https://github.com/cppalliance/ansible-paperbot)). A similar approach works for the Python version.
+
+## Bot Commands
+
+All commands work via DM or `@paperbot <command>` in a channel.
+
+| Command | Description |
+|---------|-------------|
+| `watchlist` | Show current watched authors |
+| `watchlist list` | Show current watched authors |
+| `watchlist add <name>` | Add an author to the watchlist |
+| `watchlist remove <name>` | Remove an author from the watchlist |
+| `status` | Show papers loaded, last poll time, probe stats |
+| `help` | Show command summary |
 
 ## Environment Variables
 
@@ -157,7 +171,7 @@ All parameters are configurable via environment variables or a `.env` file. See 
 |----------|---------|-------------|
 | `POLL_INTERVAL_MINUTES` | `30` | Main polling cycle interval |
 | `ENABLE_BULK_WG21` | `true` | Fetch wg21.link/index.json each cycle |
-| `ENABLE_BULK_OPENSTD` | `true` | Scrape open-std.org yearly page each cycle |
+| `ENABLE_BULK_OPENSTD` | `true` | Reserved for open-std.org scraping (defined, not yet wired into scheduler) |
 | `ENABLE_ISO_PROBE` | `true` | Run isocpp.org HEAD probing each cycle |
 
 ### Revision Probing
@@ -191,6 +205,7 @@ All parameters are configurable via environment variables or a `.env` file. See 
 | `TIER_C_LOOKBACK_MONTHS` | `18` | Only probe papers active within this window |
 | `TIER_C_PROBE_PREFIXES` | `["D"]` | Lightweight probe prefixes (D-only by default) |
 | `TIER_C_REVISION_DEPTH` | `1` | Revisions beyond V for lightweight probes |
+| `PRUNE_INACTIVE_MONTHS` | `24` | Remove Tier C entries older than this from backoff state |
 
 ### Backoff
 
@@ -199,6 +214,15 @@ All parameters are configurable via environment variables or a `.env` file. See 
 | `BACKOFF_MISS_THRESHOLD` | `3` | Consecutive 404s before starting backoff |
 | `BACKOFF_MULTIPLIER` | `2` | Skip-cycles multiplier per miss |
 | `BACKOFF_MAX_SKIP` | `48` | Maximum cycles to skip (48 = 24h at 30-min polling) |
+| `BACKOFF_RESET_ON_INDEX_HIT` | `true` | Reset miss counter when a paper appears in the bulk index |
+
+### HTTP Client
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HTTP_CONCURRENCY` | `20` | Maximum simultaneous probe requests |
+| `HTTP_TIMEOUT_SECONDS` | `10` | Request timeout for HEAD probes |
+| `HTTP_USE_HTTP2` | `true` | Enable HTTP/2 for all requests |
 
 ### Notifications
 
@@ -210,37 +234,47 @@ All parameters are configurable via environment variables or a `.env` file. See 
 | `NOTIFY_ON_FRONTIER_HIT` | `true` | Notify on frontier discovery |
 | `NOTIFY_ON_TIER_C_HIT` | `true` | Notify on Tier C D-paper discovery |
 
+### Storage
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_DIR` | `./data` | Directory for cache and state files |
+| `CACHE_TTL_HOURS` | `1` | How long the wg21.link index cache is considered fresh |
+
 ## Architecture
 
 ```
 paperbot-python/
   src/paperbot/
-    __main__.py         Entry point
-    config.py           All settings via pydantic-settings
-    models/             Paper dataclass, enums
-    sources/            wg21_index.py, iso_prober.py, open_std_scraper.py
-    search/             In-memory search engine, paper lookup
-    monitor/            Scheduler, diff engine, watchlist
-    bot/                Slack Bolt app, message handlers, commands
-    storage/            JSON cache, probe state persistence
+    __main__.py     Entry point; wires together all components
+    config.py       All settings via pydantic-settings
+    models.py       Paper dataclass, PaperPrefix/PaperType/FileExt enums
+    sources.py      WG21Index, ISOProber, open-std.org scraper
+    monitor.py      Scheduler, diff engine, Watchlist, PollResult
+    bot.py          Slack Bolt app, message handlers, notify_channel
+    storage.py      JsonCache (TTL + atomic writes), ProbeState
+  data/             Runtime cache and state (gitignored)
+  tests/
 ```
 
 ### Three-Tier Probing Strategy
 
 | Tier | What | Requests/number | Typical total |
 |------|------|----------------|---------------|
-| A | Watchlist papers | 12 (D/P x 3 revisions x pdf/html) | 60-240 |
-| B | Frontier numbers | 12 | 240-480 |
-| C | Recently active | 2 (D-only, V+1, pdf+html) | 600-800 |
+| A | Watchlist papers | 12 (D/P × 3 revisions × pdf/html) | 60–240 |
+| B | Frontier numbers | 12 | 240–480 |
+| C | Recently active | 2 (D-only, V+1, pdf+html) | 600–800 |
 
-Bulk indexes (wg21.link + open-std.org) handle published P/N papers with just 2 HTTP requests. The prober only targets D-papers and not-yet-indexed revisions.
+Bulk indexes (wg21.link) handle published P/N papers with a single HTTP request per cycle. The prober only targets D-papers and not-yet-indexed revisions.
+
+Adaptive backoff reduces repeat probing of consistently missing numbers: after `BACKOFF_MISS_THRESHOLD` consecutive 404s, a number is skipped for an exponentially growing number of cycles (capped at `BACKOFF_MAX_SKIP`).
 
 ## Data Sources
 
 | Source | URL | What it covers |
 |--------|-----|---------------|
-| wg21.link | `http://wg21.link/index.json` | All published P/N papers with metadata |
-| open-std.org | `https://www.open-std.org/jtc1/sc22/wg21/docs/papers/{year}/` | Yearly HTML tables with rich metadata |
+| wg21.link | `https://wg21.link/index.json` | All published P/N papers with metadata |
+| open-std.org | `https://www.open-std.org/jtc1/sc22/wg21/docs/papers/{year}/` | Yearly HTML tables (scraper defined, not yet scheduled) |
 | isocpp.org | `https://isocpp.org/files/papers/{D\|P}{num}R{rev}.{pdf\|html}` | D-paper drafts (no index, requires probing) |
 
 ## Dependencies
@@ -248,4 +282,56 @@ Bulk indexes (wg21.link + open-std.org) handle published P/N papers with just 2 
 - `slack-bolt` -- Slack app framework
 - `httpx[http2]` -- Async HTTP with HTTP/2 support
 - `pydantic-settings` -- Type-safe configuration
-- `apscheduler` -- Async job scheduling
+- `apscheduler>=4.0.0a,<5` -- Async job scheduling
+
+## Development
+
+### Setup
+
+```bash
+git clone https://github.com/CppDigest/paperbot-python.git
+cd paperbot-python
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+```
+
+### Running tests locally
+
+Use `./run` (bash, works in Git Bash on Windows and on Linux/macOS). `make` is a thin wrapper around the same script and requires GNU Make.
+
+```bash
+./run test      # fast test run, no coverage
+./run cov       # tests + coverage report + 90% gate
+./run check     # alias for cov -- run this before every push
+./run clean     # remove .coverage, coverage.xml, caches
+./run help      # list all targets
+```
+
+Equivalent `make` targets (Linux / CI):
+
+```bash
+make test
+make cov
+make check
+make clean
+```
+
+Override the Python interpreter if needed:
+
+```bash
+PYTHON=python3.12 ./run cov
+```
+
+`./run check` exits non-zero if any test fails or if coverage drops below 90%.
+
+### Continuous Integration
+
+The `.github/workflows/ci.yml` workflow runs automatically on every push and pull request to `main`:
+
+- **Matrix**: Python 3.10, 3.11, and 3.12 on `ubuntu-latest`
+- **Steps**: install → `pytest --cov` → coverage summary written to the job summary tab
+- **Gate**: build fails if coverage drops below 90% (`--cov-fail-under=90`)
+- **Artefact**: the `coverage.xml` report from the Python 3.12 run is uploaded and kept for 7 days
+
+Coverage details are visible in the **Summary** tab of each workflow run (rendered as a Markdown table by `coverage report --format=markdown`).

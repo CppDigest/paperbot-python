@@ -1,15 +1,21 @@
 *.log
 .env
-.venv
-*.json
-__pycache__
+.venv/
+data/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.pyw
-*.pyz
-*.pywz
-*.pyzw
-*.pyzwz
-*.pyzwzw
-*.pyzwzwz
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
+# Build / packaging
+*.egg-info/
+dist/
+build/
+
+# Pytest cache
+.pytest_cache/
