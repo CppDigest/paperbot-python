@@ -22,5 +22,5 @@ jobs:
             DUMP="/tmp/paperbot-$(date +%Y%m%d).dump"
 
             sudo -u postgres pg_dump -Fc paperbot > "$DUMP"
-            gsutil cp "$DUMP" "gs://paperbot-backup/paperbot-$(date +%Y%m%d).dump"
+            gsutil cp "$DUMP" "gs://paperbot-backups/paperbot-$(date +%Y%m%d).dump"
             rm -f "$DUMP"

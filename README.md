@@ -410,7 +410,7 @@ The app container connects to the host's shared PostgreSQL via `host.docker.inte
 The `.github/workflows/db-backup.yml` workflow runs daily at 3 AM UTC (and supports manual dispatch):
 
 1. SSHes into the server and runs `pg_dump` on the host's PostgreSQL
-2. Uploads the dump to Google Cloud Storage (`gs://paperbot-backup/`)
+2. Uploads the dump to Google Cloud Storage (`gs://paperbot-backups/`)
 3. Old backups are auto-pruned by a GCS lifecycle rule (30 days)
 
 Required GitHub Secrets for CD and backups are documented in [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md#9-github-secrets-checklist).
