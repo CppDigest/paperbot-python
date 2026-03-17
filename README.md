@@ -281,8 +281,7 @@ paperbot-python/
     health.py       HTTP health-check endpoint (GET /health on port 8080)
   data/             Log files (gitignored); all other state lives in PostgreSQL
   deploy/
-    nginx/
-      paperbot.conf Reference nginx site config (443 → 3000, /health → 8080)
+    paperbot.conf   Reference nginx site config (443 → 3000, /health → 8080)
     SERVER_SETUP.md Full Ubuntu 22.04 server provisioning guide
   tests/
   Dockerfile        Multi-stage build (python:3.12-slim)
