@@ -158,7 +158,7 @@ curl -sf http://localhost:9101/health
 
 See [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md) for the full Ubuntu 22.04 provisioning guide, and [`.github/workflows/cd.yml`](.github/workflows/cd.yml) for the CD pipeline.
 
-Database backups run daily via [`.github/workflows/db-backup.yml`](.github/workflows/db-backup.yml), uploading `pg_dump` snapshots to Cloudflare R2.
+Database backups run daily via [`.github/workflows/db-backup.yml`](.github/workflows/db-backup.yml), uploading `pg_dump` snapshots to Google Cloud Storage.
 
 ## Bot Commands
 
@@ -290,7 +290,7 @@ paperbot-python/
   .github/workflows/
     ci.yml          Test matrix on push/PR to main
     cd.yml          SSH deploy (git pull + build) on push to main
-    db-backup.yml   Daily pg_dump to Cloudflare R2
+    db-backup.yml   Daily pg_dump to Google Cloud Storage
 ```
 
 ### PostgreSQL Schema
@@ -410,7 +410,7 @@ The app container connects to the host's shared PostgreSQL via `host.docker.inte
 The `.github/workflows/db-backup.yml` workflow runs daily at 3 AM UTC (and supports manual dispatch):
 
 1. SSHes into the server and runs `pg_dump` on the host's PostgreSQL
-2. Uploads the dump to Cloudflare R2 (S3-compatible, private, zero egress fees)
-3. Prunes backups older than 30 days
+2. Uploads the dump to Google Cloud Storage (`gs://paperbot-backup/`)
+3. Old backups are auto-pruned by a GCS lifecycle rule (30 days)
 
 Required GitHub Secrets for CD and backups are documented in [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md#9-github-secrets-checklist).

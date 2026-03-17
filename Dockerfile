@@ -18,12 +18,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --shell /bin/bash paperbot
-USER paperbot
-WORKDIR /app
 
+WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY src/ src/
+RUN mkdir -p /app/data && chown paperbot:paperbot /app/data
+
+USER paperbot
 
 EXPOSE 3000 8080
 

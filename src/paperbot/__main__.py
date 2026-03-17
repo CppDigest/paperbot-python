@@ -26,7 +26,7 @@ def _setup_logging(data_dir: Path, console_level: str = "INFO",
     """Configure root logger with:
 
     • Console (stderr) — at *console_level*, for interactive monitoring.
-    • Rotating file (data_dir/paperbot.log) — always at DEBUG, rotated
+    • Rotating file (data_dir/paperbot.log) — at *console_level*, rotated
       midnight each day, keeping *retention_days* days of history.
 
     Noisy third-party libraries are silenced to WARNING regardless.
@@ -45,7 +45,7 @@ def _setup_logging(data_dir: Path, console_level: str = "INFO",
         encoding="utf-8",
         utc=True,
     )
-    fh.setLevel(logging.DEBUG)
+    fh.setLevel(getattr(logging, console_level.upper(), logging.INFO))
     fh.setFormatter(fmt)
 
     ch = logging.StreamHandler(sys.stderr)
