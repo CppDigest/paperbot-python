@@ -16,6 +16,7 @@ from paperbot.sources import (
     ProbeHit,
     WG21Index,
     _fetch_front_text,
+    _fetch_pdf_text,
     _parse_open_std_html,
     scrape_open_std,
 )
@@ -50,10 +51,27 @@ def _make_response(status: int = 200, json_data=None, text: str = "",
     return resp
 
 
-def _make_async_client(head_resp=None, get_resp=None) -> AsyncMock:
+def _make_stream_cm(status: int = 404, chunks: list[bytes] | None = None) -> AsyncMock:
+    """Return an async context manager mock for client.stream()."""
+    resp = MagicMock()
+    resp.status_code = status
+
+    async def _aiter_bytes(chunk_size=65536):
+        for chunk in (chunks or []):
+            yield chunk
+
+    resp.aiter_bytes = _aiter_bytes
+    cm = AsyncMock()
+    cm.__aenter__ = AsyncMock(return_value=resp)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    return cm
+
+
+def _make_async_client(head_resp=None, get_resp=None, stream_cm=None) -> AsyncMock:
     client = AsyncMock()
     client.head = AsyncMock(return_value=head_resp or _make_response(404))
     client.get = AsyncMock(return_value=get_resp or _make_response(404))
+    client.stream = MagicMock(return_value=stream_cm or _make_stream_cm(404))
     return client
 
 
@@ -211,6 +229,7 @@ class TestFetchFrontText:
     async def test_returns_empty_on_http_error(self):
         client = AsyncMock()
         client.get = AsyncMock(side_effect=httpx.HTTPError("timeout"))
+        client.stream = MagicMock(return_value=_make_stream_cm(404))
         assert await _fetch_front_text(client, "D", 2300, 11) == ""
 
     async def test_truncates_to_1000_words(self):
@@ -220,6 +239,85 @@ class TestFetchFrontText:
         client = _make_async_client(get_resp=mock_resp)
         result = await _fetch_front_text(client, "D", 2300, 11)
         assert len(result.split()) <= 1000
+
+
+# ── _fetch_pdf_text ───────────────────────────────────────────────────────────
+
+class TestFetchPdfText:
+    async def test_returns_empty_on_non_200(self):
+        client = _make_async_client(stream_cm=_make_stream_cm(404))
+        result = await _fetch_pdf_text(client, "https://example.com/test.pdf")
+        assert result == ""
+
+    async def test_returns_empty_when_fitz_missing(self):
+        import sys
+        client = _make_async_client(stream_cm=_make_stream_cm(200, chunks=[b"%PDF-fake"]))
+        with patch.dict(sys.modules, {"fitz": None}):
+            result = await _fetch_pdf_text(client, "https://example.com/test.pdf")
+        assert result == ""
+
+    async def test_returns_empty_on_stream_exception(self):
+        client = AsyncMock()
+        client.stream = MagicMock(side_effect=Exception("connection refused"))
+        result = await _fetch_pdf_text(client, "https://example.com/test.pdf")
+        assert result == ""
+
+    async def test_respects_byte_cap(self):
+        """stream() should be cut off after _PDF_MAX_BYTES; no crash."""
+        from paperbot.sources import _PDF_MAX_BYTES
+        big_chunk = b"x" * (_PDF_MAX_BYTES + 1)
+        # Even though the chunk exceeds the cap, _fetch_pdf_text must not raise.
+        # Passing invalid PDF bytes → fitz raises → caught → returns "".
+        pytest.importorskip("fitz", reason="PyMuPDF not installed")
+        client = _make_async_client(stream_cm=_make_stream_cm(200, chunks=[big_chunk]))
+        result = await _fetch_pdf_text(client, "https://example.com/test.pdf")
+        assert isinstance(result, str)
+
+
+# ── _fetch_pdf_text: integration (real network + real PyMuPDF) ────────────────
+
+# P4014R0 is a published Vinnie Falco paper on isocpp.org with full content
+# (not a placeholder). Its "Reply-to: Vinnie Falco" header appears in the first
+# page, making it a reliable target for testing PDF text extraction.
+_TEST_PDF_URL = "https://isocpp.org/files/papers/P4014R0.pdf"
+_TEST_PDF_PREFIX, _TEST_PDF_NUMBER, _TEST_PDF_REVISION = "P", 4014, 0
+
+
+class TestFetchPdfTextIntegration:
+    """Downloads a real WG21 PDF from isocpp.org and verifies author extraction.
+
+    Skipped automatically when PyMuPDF is not installed.
+    """
+
+    async def test_pdf_extraction_contains_vinnie(self):
+        """_fetch_pdf_text must return text containing 'vinnie' from the live PDF."""
+        pytest.importorskip("fitz", reason="PyMuPDF not installed")
+
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            text = await _fetch_pdf_text(client, _TEST_PDF_URL)
+
+        assert text, f"Expected non-empty text extracted from {_TEST_PDF_URL}"
+        assert "vinnie" in text.lower(), (
+            f"Expected 'vinnie' in extracted PDF text from {_TEST_PDF_URL}; "
+            f"first 300 chars: {text[:300]!r}"
+        )
+
+    async def test_fetch_front_text_falls_back_to_pdf(self):
+        """_fetch_front_text falls back to PDF extraction when .html is absent."""
+        pytest.importorskip("fitz", reason="PyMuPDF not installed")
+
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            text = await _fetch_front_text(
+                client,
+                _TEST_PDF_PREFIX,
+                _TEST_PDF_NUMBER,
+                _TEST_PDF_REVISION,
+            )
+
+        assert "vinnie" in text.lower(), (
+            f"Expected 'vinnie' via PDF fallback in _fetch_front_text; "
+            f"first 300 chars: {text[:300]!r}"
+        )
 
 
 # ── ISOProber: hot/cold list builders ────────────────────────────────────────

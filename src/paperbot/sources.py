@@ -144,6 +144,39 @@ class ProbeHit:
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
+_PDF_MAX_BYTES = 2 * 1024 * 1024  # 2 MB cap to avoid huge downloads
+
+
+async def _fetch_pdf_text(client: httpx.AsyncClient, pdf_url: str) -> str:
+    """Download a PDF and extract the first ~1 000 words as plain text via PyMuPDF."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        log.debug("PyMuPDF not installed; skipping PDF text extraction for %s", pdf_url)
+        return ""
+    try:
+        chunks: list[bytes] = []
+        total = 0
+        async with client.stream("GET", pdf_url, timeout=30.0) as resp:
+            if resp.status_code != 200:
+                return ""
+            async for chunk in resp.aiter_bytes(65536):
+                chunks.append(chunk)
+                total += len(chunk)
+                if total >= _PDF_MAX_BYTES:
+                    break
+        content = b"".join(chunks)
+        doc = fitz.open(stream=content, filetype="pdf")
+        words: list[str] = []
+        for page in doc:
+            words.extend(page.get_text().split())
+            if len(words) >= 1000:
+                break
+        doc.close()
+        return " ".join(words[:1000])
+    except Exception as exc:
+        log.debug("Failed to extract PDF text from %s: %s", pdf_url, exc)
+        return ""
 
 
 async def _fetch_front_text(
@@ -152,19 +185,25 @@ async def _fetch_front_text(
     number: int,
     revision: int,
 ) -> str:
-    """GET the HTML version of a paper and return the first ~1 000 words as plain text."""
+    """Return the first ~1 000 words of a paper as plain text.
+
+    Tries the HTML version first; falls back to PDF text extraction when
+    only a PDF is available (e.g. brand-new frontier papers).
+    """
     html_url = f"{ISO_BASE}{prefix}{number:04d}R{revision}.html"
     try:
         resp = await client.get(html_url, timeout=15.0)
-        if resp.status_code != 200:
-            return ""
-        raw = resp.text[:30_000]
-        plain = _TAG_RE.sub(" ", raw)
-        words = plain.split()[:1000]
-        return " ".join(words)
+        if resp.status_code == 200:
+            raw = resp.text[:30_000]
+            plain = _TAG_RE.sub(" ", raw)
+            words = plain.split()[:1000]
+            return " ".join(words)
     except (httpx.HTTPError, Exception) as exc:
         log.debug("Failed to fetch front text from %s: %s", html_url, exc)
-        return ""
+
+    # HTML not available — fall back to PDF text extraction
+    pdf_url = f"{ISO_BASE}{prefix}{number:04d}R{revision}.pdf"
+    return await _fetch_pdf_text(client, pdf_url)
 
 
 # ── Probe-list entry type ────────────────────────────────────────────────────
