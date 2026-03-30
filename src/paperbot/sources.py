@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+from typing import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -98,7 +99,11 @@ class WG21Index:
         """Absolute highest P-number in the index (may include outliers)."""
         return self._max_p
 
-    def effective_frontier(self, gap_threshold: int = 50) -> int:
+    def effective_frontier(
+        self,
+        gap_threshold: int = 50,
+        extra_p_numbers: Iterable[int] | None = None,
+    ) -> int:
         """Highest P-number in the main cluster of active papers.
 
         Walks backward from the absolute highest P-number and stops at the
@@ -106,8 +111,14 @@ class WG21Index:
         This filters out isolated high-numbered outliers (e.g. a pre-assigned
         planning document at P5000 when active work is around P4030) that
         would otherwise push the frontier window far above actual activity.
+
+        *extra_p_numbers* merges draft paper numbers (e.g. from discovered
+        isocpp.org URLs) into the same gap walk as wg21 index P-numbers.
         """
-        nums = self._sorted_p_nums
+        nums_set = set(self._max_rev.keys())
+        if extra_p_numbers:
+            nums_set |= set(extra_p_numbers)
+        nums = sorted(nums_set)
         if not nums:
             return 0
         for i in range(len(nums) - 1, 0, -1):
@@ -313,7 +324,10 @@ class ISOProber:
     # ── Probe-list builders ──────────────────────────────────────────────────
 
     def _build_probe_list(self) -> list[_Entry]:
-        frontier = self.index.effective_frontier(self.cfg.frontier_gap_threshold)
+        frontier = self.index.effective_frontier(
+            self.cfg.frontier_gap_threshold,
+            extra_p_numbers=self.state.paper_nums_from_discovered_iso_urls(),
+        )
         hot_known, hot_unknown = self._hot_numbers(frontier)
         return (
             self._build_hot_list(frontier, hot_known, hot_unknown)

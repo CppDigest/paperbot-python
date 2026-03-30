@@ -197,6 +197,21 @@ class TestWG21Index:
         index._parse_and_index(data)
         assert index.effective_frontier(gap_threshold=50) == 100
 
+    def test_effective_frontier_extra_bridges_gap_from_discovered(self, fake_pool):
+        """Draft number from discovered URLs merges into the same gap walk as the index."""
+        index = WG21Index(fake_pool)
+        data = {f"P{n:04d}R0": {"title": "T"} for n in range(4000, 4033)}
+        data["P4116R0"] = {"title": "Outlier A"}
+        data["P5000R0"] = {"title": "Outlier B"}
+        index._parse_and_index(data)
+        assert index.effective_frontier(gap_threshold=50) == 4032
+        assert index.effective_frontier(gap_threshold=50, extra_p_numbers={4165}) == 4165
+
+    def test_effective_frontier_extra_isolated_high_still_filtered(self, fake_pool):
+        index = WG21Index(fake_pool)
+        index._parse_and_index({"P0100R0": {"title": "T"}, "P0120R0": {"title": "T"}})
+        assert index.effective_frontier(gap_threshold=50, extra_p_numbers={9999}) == 120
+
     def test_latest_revision_known(self, populated_index):
         assert populated_index.latest_revision(2300) == 10
 
@@ -330,6 +345,24 @@ class TestISOProberLists:
         wl = _mock_wl(watchlist_nums)
         prober = ISOProber(index, state, user_watchlist=wl, cfg=cfg)
         return prober, index, state
+
+    def test_build_probe_list_includes_discovered_draft_in_frontier_band(self, fake_pool):
+        """Discovered isocpp URL advances effective frontier so D4165 is probed."""
+        prober, index, state = self._make_prober(
+            fake_pool,
+            frontier_window_above=2,
+            frontier_window_below=1,
+            hot_lookback_months=0,
+            hot_revision_depth=1,
+            gap_max_rev=0,
+        )
+        data = {f"P{n:04d}R0": {"title": "T"} for n in range(4000, 4033)}
+        data["P4116R0"] = {"title": "A"}
+        data["P5000R0"] = {"title": "B"}
+        index._parse_and_index(data)
+        state.mark_discovered("https://isocpp.org/files/papers/D4165R0.pdf")
+        urls = prober._build_probe_list()
+        assert any(r[0].endswith("D4165R0.pdf") for r in urls)
 
     def _set_frontier(self, index: WG21Index, frontier: int) -> None:
         index._max_p = frontier

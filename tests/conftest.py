@@ -80,6 +80,9 @@ class _FakeCursor:
                 for url, (lm, da) in self._s.discovered.items()
             ]
 
+        elif "SELECT URL FROM DISCOVERED_URLS" in su and "LAST_MODIFIED" not in su:
+            self._rows = [(url,) for url in self._s.discovered]
+
         elif "INSERT INTO DISCOVERED_URLS" in su and "DO NOTHING" in su:
             url, lm, da = params[0], params[1], params[2]
             if url not in self._s.discovered:

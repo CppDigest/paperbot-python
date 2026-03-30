@@ -7,7 +7,12 @@ from unittest.mock import patch
 import pytest
 
 from paperbot.models import Paper
-from paperbot.storage import PaperCache, ProbeState, UserWatchlist
+from paperbot.storage import (
+    PaperCache,
+    ProbeState,
+    UserWatchlist,
+    iso_paper_number_from_discovered_url,
+)
 from tests.conftest import FakePool
 
 
@@ -98,6 +103,21 @@ class TestProbeState:
         entry = state.discovered[url]
         assert entry["last_modified"] == lm_ts
         assert entry["discovered_at"] > 0
+
+    def test_iso_paper_number_from_discovered_url(self):
+        assert iso_paper_number_from_discovered_url(
+            "https://isocpp.org/files/papers/D4165R0.pdf"
+        ) == 4165
+        assert iso_paper_number_from_discovered_url(
+            "https://isocpp.org/files/papers/P1234R0.html"
+        ) == 1234
+        assert iso_paper_number_from_discovered_url("https://example.com/") is None
+
+    def test_paper_nums_from_discovered_iso_urls(self, fake_pool):
+        state = ProbeState(fake_pool)
+        state.mark_discovered("https://isocpp.org/files/papers/D4165R0.pdf")
+        state.mark_discovered("https://isocpp.org/files/papers/D2300R11.pdf")
+        assert state.paper_nums_from_discovered_iso_urls() == {4165, 2300}
 
     def test_mark_discovered_is_idempotent(self, fake_pool):
         state = ProbeState(fake_pool)

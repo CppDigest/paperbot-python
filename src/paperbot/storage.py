@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Generator
@@ -11,6 +12,18 @@ if TYPE_CHECKING:
     from psycopg2.pool import ThreadedConnectionPool
 
 log = logging.getLogger(__name__)
+
+# isocpp.org draft URLs (same path shape as ISOProber)
+_ISO_PAPER_PATH_RE = re.compile(
+    r"/files/papers/[DP](\d{4})R\d+\.(?:pdf|html)",
+    re.IGNORECASE,
+)
+
+
+def iso_paper_number_from_discovered_url(url: str) -> int | None:
+    """Extract WG21 paper number from an isocpp.org ``.../papers/[DP]####R#`` URL, or None."""
+    m = _ISO_PAPER_PATH_RE.search(url)
+    return int(m.group(1)) if m else None
 
 
 # ── Connection helper ────────────────────────────────────────────────────────
@@ -164,6 +177,19 @@ class ProbeState:
         if row is None:
             return None
         return {"last_modified": row[0], "discovered_at": row[1]}
+
+    def paper_nums_from_discovered_iso_urls(self) -> set[int]:
+        """Paper numbers parsed from isocpp.org draft URLs in ``discovered_urls``."""
+        out: set[int] = set()
+        with _conn(self._pool) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT url FROM discovered_urls")
+                for row in cur.fetchall():
+                    url = row[0]
+                    n = iso_paper_number_from_discovered_url(url)
+                    if n is not None:
+                        out.add(n)
+        return out
 
     # ── miss counts ──────────────────────────────────────────────────────────
 
