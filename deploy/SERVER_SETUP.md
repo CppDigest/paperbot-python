@@ -92,7 +92,7 @@ scp /tmp/paperscout.dump <user>@<new-server>:/tmp/paperscout.dump
 
 ```bash
 # --- On the NEW server (after creating the database above) ---
-pg_restore -U paperscout -d paperscout --no-owner paperscout.dump
+pg_restore -U paperscout -d paperscout --no-owner /tmp/paperscout.dump
 rm /tmp/paperscout.dump
 ```
 
@@ -100,7 +100,7 @@ If the dump is stored in GCS (from the daily backup workflow),
 download it directly on the new server instead:
 
 ```bash
-gsutil cp gs://paperscout-backup/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
+gsutil cp gs://paperscout-backups/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
 pg_restore -U paperscout -h localhost -d paperscout --no-owner /tmp/paperscout.dump
 rm /tmp/paperscout.dump
 ```
@@ -222,7 +222,7 @@ docker compose logs -f paperscout
 If migrating from another server with an existing database:
 
 ```bash
-gsutil cp gs://paperscout-backup/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
+gsutil cp gs://paperscout-backups/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
 pg_restore -U paperscout -h localhost -d paperscout -c /tmp/paperscout.dump
 rm /tmp/paperscout.dump
 ```
@@ -235,7 +235,7 @@ The `db-backup.yml` GitHub Actions workflow SSHes into the server daily
 and runs `pg_dump` + `gsutil cp` to upload to GCS. The VM's service
 account handles authentication automatically — no credentials needed.
 
-The GCS bucket `paperscout-backup` should have a lifecycle rule to
+The GCS bucket `paperscout-backups` should have a lifecycle rule to
 auto-delete objects older than 30 days (configured in the Cloud Console
 under the bucket's **Lifecycle** tab).
 
@@ -245,12 +245,12 @@ under the bucket's **Lifecycle** tab).
 
 Configure these in the repo under **Settings → Secrets and variables → Actions**:
 
-| Secret           | Purpose                              |
-| ---------------- | ------------------------------------ |
-| `SERVER_HOST`    | Server IP or hostname                |
-| `SERVER_USER`    | SSH username (e.g. `gcp-cppdigest`)  |
-| `SERVER_SSH_KEY` | Private SSH key for the deploy user  |
-| `SERVER_PORT`    | SSH port (optional, defaults to 22)  |
+| Secret           | Purpose                             |
+| ---------------- | ----------------------------------- |
+| `SERVER_HOST`    | Server IP or hostname               |
+| `SERVER_USER`    | SSH username (e.g. `gcp-cppdigest`) |
+| `SERVER_SSH_KEY` | Private SSH key for the deploy user |
+| `SERVER_PORT`    | SSH port (optional, defaults to 22) |
 
 `GITHUB_TOKEN` is provided automatically by GitHub Actions.
 GCS authentication uses the VM's service account — no extra secrets needed.

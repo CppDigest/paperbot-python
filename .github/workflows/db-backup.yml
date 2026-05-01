@@ -19,8 +19,9 @@ jobs:
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
             set -euo pipefail
-            DUMP="/tmp/paperscout-$(date +%Y%m%d).dump"
+            STAMP="$(date +%Y%m%d)"
+            DUMP="/tmp/paperscout-${STAMP}.dump"
 
             sudo -u postgres pg_dump -Fc paperscout > "$DUMP"
-            gsutil cp "$DUMP" "gs://paperscout-backups/paperscout-$(date +%Y%m%d).dump"
+            gsutil cp "$DUMP" "gs://paperscout-backups/paperscout-${STAMP}.dump"
             rm -f "$DUMP"
