@@ -58,7 +58,7 @@ def _setup_logging(data_dir: Path, console_level: str = "INFO",
     root.addHandler(ch)
 
     for lib in ("httpx", "httpcore", "slack_bolt", "slack_sdk",
-                "apscheduler", "urllib3", "psycopg2"):
+                "urllib3", "psycopg2"):
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
@@ -104,15 +104,16 @@ async def _async_main() -> None:
 
     paper_count_fn = lambda: len(index.papers)
 
+    def _on_poll_result(result):
+        notify_channel(app, result, mq)
+        notify_users(app, result, mq)
+
     scheduler = Scheduler(
         index=index,
         prober=prober,
         user_watchlist=user_watchlist,
         state=state,
-        notify_callback=lambda result: (
-            notify_channel(app, result, mq),
-            notify_users(app, result, mq),
-        ),
+        notify_callback=_on_poll_result,
     )
 
     register_handlers(app, user_watchlist, state, paper_count_fn, launch_time)

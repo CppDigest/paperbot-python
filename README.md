@@ -339,7 +339,6 @@ The `Last-Modified` timestamp is shown in every notification message.
 - `slack-bolt` — Slack app framework
 - `httpx[http2]` — Async HTTP with HTTP/2 support
 - `pydantic-settings` — Type-safe configuration
-- `apscheduler>=4.0.0a,<5` — Async job scheduling
 - `psycopg2-binary` — PostgreSQL adapter (sync, thread-safe)
 
 ## Development

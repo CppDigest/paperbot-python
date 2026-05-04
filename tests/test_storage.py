@@ -80,7 +80,7 @@ class TestPaperCache:
 class TestProbeState:
     def test_initial_state(self, fake_pool):
         state = ProbeState(fake_pool)
-        assert state.discovered == {}
+        assert state.get_all_discovered() == {}
         assert state.miss_counts == {}
         assert state.last_poll == 0.0
 
@@ -90,7 +90,7 @@ class TestProbeState:
         assert not state.is_discovered(url)
         state.mark_discovered(url)
         assert state.is_discovered(url)
-        entry = state.discovered[url]
+        entry = state.get_all_discovered()[url]
         assert isinstance(entry, dict)
         assert "discovered_at" in entry
         assert entry["last_modified"] is None
@@ -100,7 +100,7 @@ class TestProbeState:
         url = "https://isocpp.org/files/papers/D2300R11.pdf"
         lm_ts = 1_700_000_000.0
         state.mark_discovered(url, last_modified_ts=lm_ts)
-        entry = state.discovered[url]
+        entry = state.get_all_discovered()[url]
         assert entry["last_modified"] == lm_ts
         assert entry["discovered_at"] > 0
 
@@ -123,10 +123,10 @@ class TestProbeState:
         state = ProbeState(fake_pool)
         url = "https://isocpp.org/files/papers/D2300R11.pdf"
         state.mark_discovered(url, last_modified_ts=111.0)
-        first_entry = dict(state.discovered[url])
+        first_entry = dict(state.get_all_discovered()[url])
         time.sleep(0.01)
         state.mark_discovered(url, last_modified_ts=999.0)
-        assert state.discovered[url] == first_entry
+        assert state.get_all_discovered()[url] == first_entry
 
     def test_discovered_info_returns_entry(self, fake_pool):
         state = ProbeState(fake_pool)
@@ -140,11 +140,11 @@ class TestProbeState:
         state = ProbeState(fake_pool)
         assert state.discovered_info("https://example.com/nope.pdf") is None
 
-    def test_discovered_property_returns_all(self, fake_pool):
+    def test_get_all_discovered_returns_all(self, fake_pool):
         state = ProbeState(fake_pool)
         state.mark_discovered("https://example.com/A.pdf")
         state.mark_discovered("https://example.com/B.pdf")
-        disc = state.discovered
+        disc = state.get_all_discovered()
         assert len(disc) == 2
         assert "https://example.com/A.pdf" in disc
         assert "https://example.com/B.pdf" in disc

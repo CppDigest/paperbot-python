@@ -133,9 +133,12 @@ class ProbeState:
 
     # ── discovered ───────────────────────────────────────────────────────────
 
-    @property
-    def discovered(self) -> dict[str, dict]:
-        """Return full discovered map as a dict (for status display / iteration)."""
+    def get_all_discovered(self) -> dict[str, dict]:
+        """Return full discovered map as a dict (for status display / iteration).
+
+        Performs a full table scan -- prefer ``is_discovered()`` for single-URL
+        lookups and call this only when the complete map is actually needed.
+        """
         with _conn(self._pool) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT url, last_modified, discovered_at FROM discovered_urls")

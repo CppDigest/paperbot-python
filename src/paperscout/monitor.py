@@ -133,7 +133,7 @@ class Scheduler:
             "SEED-DONE  elapsed=%.1fs  papers=%d  discovered=%d",
             time.monotonic() - t0,
             len(self._previous_papers),
-            len(self.state.discovered),
+            len(self.state.get_all_discovered()),
         )
 
     async def poll_once(self) -> PollResult:
@@ -214,7 +214,8 @@ class Scheduler:
                     )
                     break
 
-        # Per-user watchlist matching
+        # Dispatched to a thread because matches_for_users performs synchronous
+        # PostgreSQL I/O via psycopg2, which would block the event loop.
         per_user_matches = await asyncio.to_thread(
             self.user_watchlist.matches_for_users,
             diff.new_papers,

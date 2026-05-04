@@ -12,7 +12,7 @@ from slack_sdk.errors import SlackApiError
 from .config import settings
 from .models import Paper
 from .monitor import DPTransition, PerUserMatches, PollResult
-from .sources import ProbeHit
+from .sources import ProbeHit, Tier
 from .storage import ProbeState, UserWatchlist
 
 log = logging.getLogger(__name__)
@@ -163,8 +163,8 @@ def notify_channel(app: App, result: PollResult, mq: MessageQueue) -> None:
             )
 
     # Frontier probe hits
-    frontier_hits = [h for h in result.probe_hits if h.tier == "frontier"]
-    other_hits    = [h for h in result.probe_hits if h.tier != "frontier"]
+    frontier_hits = [h for h in result.probe_hits if h.tier == Tier.FRONTIER]
+    other_hits    = [h for h in result.probe_hits if h.tier != Tier.FRONTIER]
 
     if settings.notify_on_frontier_hit and frontier_hits:
         lines.append(f"*:mag: {len(frontier_hits)} new frontier draft(s):*")
@@ -413,16 +413,16 @@ def _show_watchlist(
 
 
 def _handle_status(state: ProbeState, paper_count_fn, say, reply_opts: dict) -> None:
-    from datetime import datetime as _dt
+    from datetime import datetime as _dt, timezone as _tz
     last = state.last_poll
-    last_str = _dt.fromtimestamp(last).strftime("%Y-%m-%d %H:%M:%S") if last else "never"
+    last_str = _dt.fromtimestamp(last, tz=_tz.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if last else "never"
     say(
         text=(
             f"*Paperscout Status*\n"
             f"• Papers loaded: {paper_count_fn():,}\n"
             f"• Last poll: {last_str}\n"
             f"• Poll interval: {settings.poll_interval_minutes} min\n"
-            f"• Discovered via probe: {len(state.discovered)}\n"
+            f"• Discovered via probe: {len(state.get_all_discovered())}\n"
             f"• ISO probing: {'enabled' if settings.enable_iso_probe else 'disabled'}\n"
             f"• Alert window: {settings.alert_modified_hours}h\n"
             f"• Cold cycle: 1/{settings.cold_cycle_divisor}"

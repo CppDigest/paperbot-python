@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+from enum import Enum
 from typing import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -130,12 +131,23 @@ class WG21Index:
         rev = self._max_rev.get(number)
         return rev if rev is not None and rev >= 0 else None
 
+    def known_p_numbers(self) -> set[int]:
+        """Set of all P-numbers present in the wg21.link index."""
+        return set(self._max_rev.keys())
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ISO Paper Prober
 # ═══════════════════════════════════════════════════════════════════════════
 
 ISO_BASE = "https://isocpp.org/files/papers/"
+
+
+class Tier(str, Enum):
+    WATCHLIST = "watchlist"
+    FRONTIER = "frontier"
+    RECENT = "recent"
+    COLD = "cold"
 
 
 @dataclass(slots=True)
@@ -145,8 +157,7 @@ class ProbeHit:
     number: int
     revision: int
     extension: str
-    # Tier labels: "watchlist" | "frontier" | "recent" | "cold"
-    tier: str
+    tier: Tier
     front_text: str = ""
     last_modified: datetime | None = field(default=None)
     # True when Last-Modified is within alert_modified_hours of now,
@@ -175,6 +186,7 @@ async def _fetch_pdf_text(client: httpx.AsyncClient, pdf_url: str) -> str:
                 chunks.append(chunk)
                 total += len(chunk)
                 if total >= _PDF_MAX_BYTES:
+                    log.debug("PDF truncated at %d bytes for %s", total, pdf_url)
                     break
         content = b"".join(chunks)
         doc = fitz.open(stream=content, filetype="pdf")
@@ -209,7 +221,7 @@ async def _fetch_front_text(
             plain = _TAG_RE.sub(" ", raw)
             words = plain.split()[:1000]
             return " ".join(words)
-    except (httpx.HTTPError, Exception) as exc:
+    except Exception as exc:
         log.debug("Failed to fetch front text from %s: %s", html_url, exc)
 
     # HTML not available — fall back to PDF text extraction
@@ -219,7 +231,7 @@ async def _fetch_front_text(
 
 # ── Probe-list entry type ────────────────────────────────────────────────────
 # (url, tier, prefix, number, revision, extension)
-_Entry = tuple[str, str, str, int, int, str]
+_Entry = tuple[str, Tier, str, int, int, str]
 
 
 class ISOProber:
@@ -273,8 +285,10 @@ class ISOProber:
         t0 = time.monotonic()
 
         urls = self._build_probe_list()
-        hot_count = sum(1 for u in urls if u[1] in ("watchlist", "frontier", "recent"))
-        cold_count = sum(1 for u in urls if u[1] == "cold")
+        hot_count = sum(
+            1 for u in urls if u[1] in (Tier.WATCHLIST, Tier.FRONTIER, Tier.RECENT)
+        )
+        cold_count = sum(1 for u in urls if u[1] == Tier.COLD)
         slice_idx = (self._cycle - 1) % self.cfg.cold_cycle_divisor
         log.info(
             "PROBE-START  cycle=%d  total=%d  hot=%d  cold=%d  slice=%d/%d",
@@ -362,15 +376,15 @@ class ISOProber:
                 except ValueError:
                     continue
 
-        known_p_nums = set(self.index._max_rev.keys())
+        known_p_nums = self.index.known_p_numbers()
         return hot & known_p_nums, hot - known_p_nums
 
-    def _tier_label(self, num: int, watchlist_set: set[int], frontier_range: set[int]) -> str:
+    def _tier_label(self, num: int, watchlist_set: set[int], frontier_range: set[int]) -> Tier:
         if num in watchlist_set:
-            return "watchlist"
+            return Tier.WATCHLIST
         if num in frontier_range:
-            return "frontier"
-        return "recent"
+            return Tier.FRONTIER
+        return Tier.RECENT
 
     def _build_hot_list(
         self,
@@ -403,7 +417,7 @@ class ISOProber:
                 for rev in range(0, self.cfg.gap_max_rev + 1):
                     for ext in self.cfg.probe_extensions:
                         url = f"{ISO_BASE}{prefix}{num:04d}R{rev}{ext}"
-                        results.append((url, "frontier", prefix, num, rev, ext))
+                        results.append((url, Tier.FRONTIER, prefix, num, rev, ext))
 
         return results
 
@@ -418,7 +432,7 @@ class ISOProber:
         slice_idx = (cycle - 1) % self.cfg.cold_cycle_divisor
         results: list[_Entry] = []
 
-        known_p_nums = set(self.index._max_rev.keys())
+        known_p_nums = self.index.known_p_numbers()
         cold_known = known_p_nums - hot_known
         all_active = set(range(1, frontier + 1))
         cold_unknown = all_active - known_p_nums - hot_unknown
@@ -433,7 +447,7 @@ class ISOProber:
             for rev in range(latest + 1, latest + self.cfg.cold_revision_depth + 1):
                 for ext in self.cfg.probe_extensions:
                     url = f"{ISO_BASE}D{num:04d}R{rev}{ext}"
-                    results.append((url, "cold", "D", num, rev, ext))
+                    results.append((url, Tier.COLD, "D", num, rev, ext))
 
         # Cold unknown gap numbers: D+P, R0 .. gap_max_rev
         for num in sorted(cold_unknown):
@@ -443,7 +457,7 @@ class ISOProber:
                 for rev in range(0, self.cfg.gap_max_rev + 1):
                     for ext in self.cfg.probe_extensions:
                         url = f"{ISO_BASE}{prefix}{num:04d}R{rev}{ext}"
-                        results.append((url, "cold", prefix, num, rev, ext))
+                        results.append((url, Tier.COLD, prefix, num, rev, ext))
 
         return results
 
@@ -458,7 +472,7 @@ class ISOProber:
         num: int,
         rev: int,
         ext: str,
-        tier: str,
+        tier: Tier,
     ) -> ProbeHit | None:
         if self.state.is_discovered(url):
             log.debug("SKIP  disc  %s", url)
@@ -470,62 +484,72 @@ class ISOProber:
             self._stats["skipped_in_index"] += 1
             return None
         async with sem:
-            try:
-                resp = await client.head(url)
-                if resp.status_code != 200:
-                    log.debug("MISS  %d  %s", resp.status_code, url)
-                    self._stats["miss"] += 1
+            _max_retries = 3
+            for _attempt in range(_max_retries):
+                try:
+                    resp = await client.head(url)
+                    break
+                except httpx.HTTPError as exc:
+                    if _attempt < _max_retries - 1:
+                        await asyncio.sleep(0.5 * (2 ** _attempt))
+                        continue
+                    log.debug("ERR   %s  %s (after %d attempts)", url, exc, _max_retries)
+                    self._stats["error"] += 1
                     return None
+            else:
+                return None
 
-                # Determine recency from the Last-Modified response header.
-                last_modified: datetime | None = None
-                is_recent = False
-                lm_str = resp.headers.get("last-modified")
-                if lm_str:
-                    try:
-                        last_modified = parsedate_to_datetime(lm_str)
-                        threshold = timedelta(hours=self.cfg.alert_modified_hours)
-                        is_recent = (
-                            datetime.now(timezone.utc) - last_modified
-                        ) <= threshold
-                    except Exception:
-                        pass
-                else:
-                    # No Last-Modified: first-ever discovery of an untracked
-                    # file; treat as recent so we don't silently drop it.
-                    is_recent = True
+            if resp.status_code != 200:
+                log.debug("MISS  %d  %s", resp.status_code, url)
+                self._stats["miss"] += 1
+                return None
 
-                lm_display = (
-                    last_modified.strftime("%Y-%m-%d %H:%M UTC")
-                    if last_modified else "no-lm"
-                )
-                log.info(
-                    "HIT  tier=%-10s  recent=%-5s  lm=%-20s  %s",
-                    tier, is_recent, lm_display, url,
-                )
+            # Determine recency from the Last-Modified response header.
+            last_modified: datetime | None = None
+            is_recent = False
+            lm_str = resp.headers.get("last-modified")
+            if lm_str:
+                try:
+                    last_modified = parsedate_to_datetime(lm_str)
+                    threshold = timedelta(hours=self.cfg.alert_modified_hours)
+                    is_recent = (
+                        datetime.now(timezone.utc) - last_modified
+                    ) <= threshold
+                except Exception:
+                    pass
+            else:
+                # No Last-Modified: first-ever discovery of an untracked
+                # file; treat as recent so we don't silently drop it.
+                is_recent = True
 
-                if is_recent and last_modified is not None:
-                    self._stats["hit_recent"] += 1
-                elif not is_recent:
-                    self._stats["hit_old"] += 1
-                else:
-                    self._stats["hit_no_lm"] += 1
+            lm_display = (
+                last_modified.strftime("%Y-%m-%d %H:%M UTC")
+                if last_modified else "no-lm"
+            )
+            log.info(
+                "HIT  tier=%-10s  recent=%-5s  lm=%-20s  %s",
+                tier, is_recent, lm_display, url,
+            )
 
-                # Only fetch front text when we intend to alert.
-                front_text = ""
-                if is_recent:
-                    front_text = await _fetch_front_text(client, prefix, num, rev)
+            if is_recent and last_modified is not None:
+                self._stats["hit_recent"] += 1
+            elif not is_recent:
+                self._stats["hit_old"] += 1
+            else:
+                self._stats["hit_no_lm"] += 1
 
-                return ProbeHit(
-                    url=url, prefix=prefix, number=num,
-                    revision=rev, extension=ext, tier=tier,
-                    front_text=front_text,
-                    last_modified=last_modified,
-                    is_recent=is_recent,
-                )
-            except httpx.HTTPError as exc:
-                log.debug("ERR   %s  %s", url, exc)
-                self._stats["error"] += 1
+            # Only fetch front text when we intend to alert.
+            front_text = ""
+            if is_recent:
+                front_text = await _fetch_front_text(client, prefix, num, rev)
+
+            return ProbeHit(
+                url=url, prefix=prefix, number=num,
+                revision=rev, extension=ext, tier=tier,
+                front_text=front_text,
+                last_modified=last_modified,
+                is_recent=is_recent,
+            )
         return None
 
 

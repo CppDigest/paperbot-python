@@ -20,7 +20,10 @@ def _find_free_port() -> int:
 class _FakeState:
     def __init__(self, last_poll=None, discovered=None):
         self.last_poll = last_poll
-        self.discovered = discovered or {}
+        self._discovered = discovered or {}
+
+    def get_all_discovered(self):
+        return self._discovered
 
 
 @pytest.fixture()
