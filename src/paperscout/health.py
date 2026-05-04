@@ -29,7 +29,8 @@ class _HealthHandler(BaseHTTPRequestHandler):
         from .config import settings
 
         last_poll = getattr(self.state, "last_poll", None)
-        discovered = getattr(self.state, "discovered", {})
+        get_disc = getattr(self.state, "get_all_discovered", lambda: {})
+        discovered = get_disc()
 
         body = json.dumps({
             "version": __version__,
