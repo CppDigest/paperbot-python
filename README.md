@@ -145,6 +145,8 @@ The scout runs as a Docker container deployed via CD on every push to `main`. It
 Push to main → CI tests → SSH into server → git pull → docker compose up --build → Health check
 ```
 
+**Staging** (`develop`): CD deploys to a **separate** host using repository secrets `STAGING_SERVER_HOST`, `STAGING_SERVER_USER`, `STAGING_SERVER_SSH_KEY`, and optionally `STAGING_SERVER_PORT` (defaults to 22 if unset). On that host it uses `/opt/paperscout-staging` and checks health on port **9102** (configure staging compose / `.env` so `/health` maps to `9102`).
+
 Quick start on a fresh server:
 
 ```bash
@@ -154,6 +156,16 @@ cd /opt/paperscout
 cp .env.example .env        # edit with real credentials
 docker compose up -d --build
 curl -sf http://localhost:9101/health
+```
+
+On the **staging** host (separate from production; match the `STAGING_SERVER_*` GitHub secrets):
+
+```bash
+git clone -b develop https://github.com/cppalliance/paperscout-python.git /opt/paperscout-staging
+cd /opt/paperscout-staging
+cp .env.example .env   # use staging credentials / DB / Slack app as appropriate
+docker compose up -d --build
+curl -sf http://localhost:9102/health
 ```
 
 See [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md) for the full Ubuntu 22.04 provisioning guide, and [`.github/workflows/cd.yml`](.github/workflows/cd.yml) for the CD pipeline.
@@ -384,7 +396,7 @@ PYTHON=python3.12 ./run cov
 
 ### Continuous Integration
 
-The `.github/workflows/ci.yml` workflow runs automatically on every push and pull request to `main`:
+The `.github/workflows/ci.yml` workflow runs automatically on every push and pull request to `main` or `develop`:
 
 - **Matrix**: Python 3.10, 3.11, and 3.12 on `ubuntu-latest`
 - **Steps**: install → `pytest --cov` → coverage summary written to the job summary tab
@@ -395,13 +407,13 @@ Coverage details are visible in the **Summary** tab of each workflow run (render
 
 ### Continuous Deployment
 
-The `.github/workflows/cd.yml` workflow runs on every push to `main`:
+The `.github/workflows/cd.yml` workflow runs on push to `main` or `develop`:
 
 1. **Test** — single Python 3.12 pytest run as a gate
-2. **Deploy** — SSHes into the server, runs `git pull`, and rebuilds the container with `docker compose up -d --build`
-3. **Health check** — verifies `GET /health` returns 200
+2. **Deploy (production)** — on `main` only: SSH using `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`, optional `SERVER_PORT`; `/opt/paperscout`; `git pull origin main`; `docker compose up -d --build`; health on **9101**
+3. **Deploy (staging)** — on `develop` only: SSH using `STAGING_SERVER_*` secrets to the staging host; `/opt/paperscout-staging`; fast-forward `develop`; same compose service name; health on **9102**
 
-The app container connects to the host's shared PostgreSQL via `host.docker.internal`. Restarting the container has no effect on the database.
+Production and staging targets are independent (different secrets / hosts). The app container connects to PostgreSQL on each host as configured in that environment’s `.env`.
 
 ### Database Backups
 
@@ -411,4 +423,4 @@ The `.github/workflows/db-backup.yml` workflow runs daily at 3 AM UTC (and suppo
 2. Uploads the dump to Google Cloud Storage (`gs://paperscout-backups/`)
 3. Old backups are auto-pruned by a GCS lifecycle rule (30 days)
 
-Required GitHub Secrets for CD and backups are documented in [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md#9-github-secrets-checklist).
+Staging CD requires **`STAGING_SERVER_HOST`**, **`STAGING_SERVER_USER`**, and **`STAGING_SERVER_SSH_KEY`** (optional **`STAGING_SERVER_PORT`**). Other secrets (e.g. database backups) are documented in [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md#9-github-secrets-checklist).
