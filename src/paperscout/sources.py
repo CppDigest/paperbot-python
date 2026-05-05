@@ -1,3 +1,5 @@
+"""WG21 index fetch/cache and async HTTP probing of isocpp.org drafts."""
+
 from __future__ import annotations
 
 import asyncio
@@ -37,6 +39,7 @@ class WG21Index:
         self._sorted_p_nums: list[int] = []  # sorted unique P-numbers, for gap analysis
 
     async def refresh(self) -> dict[str, Paper]:
+        """Load index from cache or network; populate ``self.papers``."""
         cached = self._cache.read_if_fresh()
         if cached is not None:
             log.info("Loaded %d entries from cache", len(cached))
@@ -106,17 +109,7 @@ class WG21Index:
         gap_threshold: int = 50,
         extra_p_numbers: Iterable[int] | None = None,
     ) -> int:
-        """Highest P-number in the main cluster of active papers.
-
-        Walks backward from the absolute highest P-number and stops at the
-        first number whose gap to its predecessor is within *gap_threshold*.
-        This filters out isolated high-numbered outliers (e.g. a pre-assigned
-        planning document at P5000 when active work is around P4030) that
-        would otherwise push the frontier window far above actual activity.
-
-        *extra_p_numbers* merges draft paper numbers (e.g. from discovered
-        isocpp.org URLs) into the same gap walk as wg21 index P-numbers.
-        """
+        """Largest P-number in the “main cluster”, ignoring huge gaps/outliers."""
         nums_set = set(self._max_rev.keys())
         if extra_p_numbers:
             nums_set |= set(extra_p_numbers)
@@ -129,6 +122,7 @@ class WG21Index:
         return nums[0]
 
     def latest_revision(self, number: int) -> int | None:
+        """Highest revision R*n* seen in the index for P-number *number*."""
         rev = self._max_rev.get(number)
         return rev if rev is not None and rev >= 0 else None
 
@@ -145,6 +139,7 @@ ISO_BASE = "https://isocpp.org/files/papers/"
 
 
 class Tier(str, Enum):
+    """Probe priority bucket for isocpp HEAD requests."""
     WATCHLIST = "watchlist"
     FRONTIER = "frontier"
     RECENT = "recent"
@@ -153,6 +148,8 @@ class Tier(str, Enum):
 
 @dataclass(slots=True)
 class ProbeHit:
+    """Successful HEAD to an unpublished draft URL plus optional excerpt text."""
+
     url: str
     prefix: str
     number: int
@@ -171,7 +168,7 @@ _PDF_MAX_BYTES = 2 * 1024 * 1024  # 2 MB cap to avoid huge downloads
 
 
 async def _fetch_pdf_text(client: httpx.AsyncClient, pdf_url: str) -> str:
-    """Download a PDF and extract the first ~1 000 words as plain text via PyMuPDF."""
+    """First ~1000 words from a PDF via PyMuPDF, or empty if unavailable."""
     try:
         import fitz  # PyMuPDF
     except ImportError:
@@ -209,11 +206,7 @@ async def _fetch_front_text(
     number: int,
     revision: int,
 ) -> str:
-    """Return the first ~1 000 words of a paper as plain text.
-
-    Tries the HTML version first; falls back to PDF text extraction when
-    only a PDF is available (e.g. brand-new frontier papers).
-    """
+    """Opening text from HTML if present, else from PDF (for watchlist author match)."""
     html_url = f"{ISO_BASE}{prefix}{number:04d}R{revision}.html"
     try:
         resp = await client.get(html_url, timeout=15.0)
@@ -236,22 +229,7 @@ _Entry = tuple[str, Tier, str, int, int, str]
 
 
 class ISOProber:
-    """Two-frequency async HEAD prober for isocpp.org/files/papers/.
-
-    Hot list (every cycle, ~30 min):
-      • Watchlist papers
-      • Frontier window around the effective-frontier P-number
-      • Papers active within hot_lookback_months
-
-    Cold list (distributed across cold_cycle_divisor cycles ≈ 24 h):
-      • Every other known P-number (probe for the next unpublished draft)
-      • Every gap number in 1..frontier (may be untracked new assignments)
-
-    Alerting is driven by the HTTP Last-Modified response header rather than
-    our own discovery state.  A hit is flagged is_recent=True when the server
-    reports the file was modified within alert_modified_hours of now, ensuring
-    we only notify about genuinely new or updated drafts.
-    """
+    """Async HEAD probe of isocpp draft URLs: hot every cycle, cold in rotating slices."""
 
     # Keys that _stats is reset to at the start of every run_cycle().
     _STATS_TEMPLATE: dict[str, int] = {
@@ -281,6 +259,7 @@ class ISOProber:
     # ── Public API ───────────────────────────────────────────────────────────
 
     async def run_cycle(self) -> list[ProbeHit]:
+        """HEAD all scheduled URLs; return recent hits and persist discovery state."""
         self._cycle += 1
         self._stats = dict(self._STATS_TEMPLATE)
         t0 = time.monotonic()
@@ -576,6 +555,8 @@ _LINK_RE = re.compile(
 
 @dataclass(slots=True)
 class OpenStdEntry:
+    """One row scraped from open-std.org WG21 paper listings."""
+
     paper_id: str
     title: str
     author: str
@@ -584,6 +565,7 @@ class OpenStdEntry:
 
 
 async def scrape_open_std(year: int | None = None) -> list[OpenStdEntry]:
+    """Fetch and parse the open-std.org WG21 papers index page for *year*."""
     year = year or date.today().year
     url = OPEN_STD_URL.format(year=year)
     try:
@@ -600,6 +582,7 @@ async def scrape_open_std(year: int | None = None) -> list[OpenStdEntry]:
 
 
 def _parse_open_std_html(html: str) -> list[OpenStdEntry]:
+    """Parse WG21 paper listing rows from an open-std.org HTML page."""
     entries: list[OpenStdEntry] = []
     rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL | re.IGNORECASE)
     for row in rows:

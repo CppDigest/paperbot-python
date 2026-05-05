@@ -1,3 +1,5 @@
+"""WG21 paper scout: Slack bot, index polling, and isocpp.org probing."""
+
 from importlib.metadata import PackageNotFoundError, version
 
 try:

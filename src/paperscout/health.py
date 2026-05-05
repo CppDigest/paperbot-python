@@ -15,6 +15,8 @@ log = logging.getLogger(__name__)
 
 
 class _HealthHandler(BaseHTTPRequestHandler):
+    """Serves JSON ``GET /health`` with version, uptime, index and probe stats."""
+
     launch_time: datetime
     paper_count_fn: Callable[[], int]
     state: object  # ProbeState — kept generic to avoid circular import

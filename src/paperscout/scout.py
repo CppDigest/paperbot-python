@@ -1,3 +1,5 @@
+"""Slack Bolt app: outbound notifications, commands, and message queue."""
+
 from __future__ import annotations
 
 import logging
@@ -19,6 +21,7 @@ log = logging.getLogger(__name__)
 
 
 def create_app() -> App:
+    """Construct a Slack Bolt ``App`` using configured bot token and signing secret."""
     return App(
         token=settings.slack_bot_token,
         signing_secret=settings.slack_signing_secret,
@@ -32,12 +35,7 @@ SLACK_MAX_TEXT = 3000
 
 
 class MessageQueue:
-    """Thread-safe, rate-limited Slack ``chat.postMessage`` queue.
-
-    Maintains a 1-message-per-second-per-channel limit and honours the
-    ``Retry-After`` header on HTTP 429 responses.  All channel and DM posts
-    go through this queue so the polling loop is never blocked by Slack I/O.
-    """
+    """Background queue for Slack posts: per-channel throttle and 429 retry-after."""
 
     def __init__(self, app: App):
         self._app = app
@@ -48,11 +46,13 @@ class MessageQueue:
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
+        """Start the background sender thread."""
         self._thread = threading.Thread(target=self._run, daemon=True, name="mq-sender")
         self._thread.start()
         log.info("MessageQueue  started")
 
     def enqueue(self, channel: str, text: str, **kwargs) -> None:
+        """Queue a ``chat.postMessage`` for *channel* (or user id for DMs)."""
         self._q.put((channel, text, kwargs))
 
     def _run(self) -> None:
@@ -110,6 +110,7 @@ class MessageQueue:
 
 
 def _paper_link(paper: Paper) -> str:
+    """Slack mrkdwn ``<url|id>`` for *paper* (wg21.link fallback if no URL)."""
     url = paper.url or paper.long_link
     if not url:
         url = f"https://wg21.link/{paper.id}"
@@ -117,11 +118,13 @@ def _paper_link(paper: Paper) -> str:
 
 
 def _hit_label(hit_url: str, prefix: str, number: int, revision: int, ext: str) -> str:
+    """Slack mrkdwn link for an isocpp probe hit filename."""
     name = f"{prefix}{number:04d}R{revision}{ext}"
     return f"<{hit_url}|{name}>"
 
 
 def _fmt_lm(lm: datetime | None) -> str:
+    """Short human-readable age string from a Last-Modified time."""
     if lm is None:
         return "modified: unknown"
     now = datetime.now(timezone.utc)
@@ -244,6 +247,7 @@ def notify_users(app: App, result: PollResult, mq: MessageQueue) -> None:
 
 
 def _batch_lines(lines: list[str], max_len: int) -> list[str]:
+    """Split *lines* into Slack-sized chunks under *max_len* characters."""
     batches: list[str] = []
     current: list[str] = []
     current_len = 0
@@ -270,6 +274,7 @@ def register_handlers(
     paper_count_fn,
     launch_time: datetime | None = None,
 ) -> None:
+    """Wire Slack events for mentions, DMs, watchlist, status, version, uptime."""
     def _dispatch(text: str, user_id: str, channel_type: str, say, reply_opts: dict) -> None:
         words = [w for w in text.split() if w]
         if not words:
@@ -362,6 +367,7 @@ def register_handlers(
 
 
 def _reply_opts(event: dict) -> dict:
+    """kwargs for ``say`` including ``thread_ts`` when replying in a thread."""
     opts: dict = {"unfurl_links": False, "unfurl_media": False}
     thread_ts = event.get("thread_ts")
     if thread_ts:
@@ -376,6 +382,7 @@ def _handle_watchlist(
     say,
     reply_opts: dict,
 ) -> None:
+    """Parse ``watchlist`` subcommand: add, remove, list, or usage."""
     if not args:
         _show_watchlist(user_id, user_watchlist, say, reply_opts)
         return
@@ -408,6 +415,7 @@ def _show_watchlist(
     say,
     reply_opts: dict,
 ) -> None:
+    """Post the user’s watchlist entries or an empty-state hint."""
     entries = user_watchlist.list_entries(user_id)
     if entries:
         lines = [f"• {entry} ({etype})" for entry, etype in entries]
@@ -426,6 +434,7 @@ def _show_watchlist(
 
 
 def _handle_status(state: ProbeState, paper_count_fn, say, reply_opts: dict) -> None:
+    """Post loaded paper count, last poll, probe settings."""
     from datetime import datetime as _dt
     from datetime import timezone as _tz
 
@@ -449,12 +458,14 @@ def _handle_status(state: ProbeState, paper_count_fn, say, reply_opts: dict) -> 
 
 
 def _handle_version(say, reply_opts: dict) -> None:
+    """Post package version string."""
     from . import __version__
 
     say(text=f"Paperscout v{__version__}", **reply_opts)
 
 
 def _format_uptime(delta) -> str:
+    """Compact ``Nd Nh Nm`` string for a timedelta."""
     total_seconds = int(delta.total_seconds())
     days, remainder = divmod(total_seconds, 86400)
     hours, remainder = divmod(remainder, 3600)
@@ -469,6 +480,7 @@ def _format_uptime(delta) -> str:
 
 
 def _handle_uptime(launch_time: datetime | None, say, reply_opts: dict) -> None:
+    """Post time since process start (from *launch_time*)."""
     if launch_time is None:
         say(text="Uptime information is not available.", **reply_opts)
         return
