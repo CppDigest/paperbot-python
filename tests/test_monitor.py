@@ -1,8 +1,9 @@
 """Tests for paperscout.monitor."""
+
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,8 +24,12 @@ from tests.conftest import make_test_settings
 def _recent_hit(**kwargs) -> ProbeHit:
     defaults = dict(
         url="https://isocpp.org/files/papers/D9999R0.pdf",
-        prefix="D", number=9999, revision=0, extension=".pdf",
-        tier="frontier", is_recent=True,
+        prefix="D",
+        number=9999,
+        revision=0,
+        extension=".pdf",
+        tier="frontier",
+        is_recent=True,
     )
     defaults.update(kwargs)
     return ProbeHit(**defaults)
@@ -33,8 +38,12 @@ def _recent_hit(**kwargs) -> ProbeHit:
 def _old_hit(**kwargs) -> ProbeHit:
     defaults = dict(
         url="https://isocpp.org/files/papers/D8888R0.pdf",
-        prefix="D", number=8888, revision=0, extension=".pdf",
-        tier="cold", is_recent=False,
+        prefix="D",
+        number=8888,
+        revision=0,
+        extension=".pdf",
+        tier="cold",
+        is_recent=False,
         last_modified=datetime.now(timezone.utc) - timedelta(days=30),
     )
     defaults.update(kwargs)
@@ -42,6 +51,7 @@ def _old_hit(**kwargs) -> ProbeHit:
 
 
 # ── diff_snapshots ────────────────────────────────────────────────────────────
+
 
 class TestDiffSnapshots:
     def _paper(self, pid, **kwargs) -> Paper:
@@ -89,8 +99,8 @@ class TestDiffSnapshots:
         prev = {}
         curr = {
             "P2300R10": self._paper("P2300R10", date="2024-01-01"),
-            "P2301R0":  self._paper("P2301R0",  date="2024-06-01"),
-            "P2302R0":  self._paper("P2302R0",  date="2024-03-01"),
+            "P2301R0": self._paper("P2301R0", date="2024-06-01"),
+            "P2302R0": self._paper("P2302R0", date="2024-03-01"),
         }
         result = diff_snapshots(prev, curr)
         dates = [p.date for p in result.new_papers]
@@ -103,6 +113,7 @@ class TestDiffSnapshots:
 
 # ── PollResult ────────────────────────────────────────────────────────────────
 
+
 class TestPollResult:
     def test_defaults(self):
         diff = DiffResult(new_papers=[], updated_papers=[])
@@ -112,6 +123,7 @@ class TestPollResult:
 
     def test_explicit_dp_transitions(self):
         from paperscout.monitor import DPTransition
+
         diff = DiffResult(new_papers=[], updated_papers=[])
         paper = Paper(id="P2300R11")
         tr = DPTransition(paper=paper, draft_url="http://x", last_modified=None, discovered_at=0.0)
@@ -128,6 +140,7 @@ class TestPollResult:
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 
+
 def _make_scheduler(fake_pool, **cfg_overrides):
     index = MagicMock(spec=WG21Index)
     index.refresh = AsyncMock()
@@ -139,8 +152,11 @@ def _make_scheduler(fake_pool, **cfg_overrides):
     state = ProbeState(fake_pool)
     cfg = make_test_settings(**cfg_overrides)
     scheduler = Scheduler(
-        index=index, prober=prober,
-        user_watchlist=user_watchlist, state=state, cfg=cfg,
+        index=index,
+        prober=prober,
+        user_watchlist=user_watchlist,
+        state=state,
+        cfg=cfg,
     )
     return scheduler, index, prober, user_watchlist, state
 
@@ -187,8 +203,9 @@ class TestScheduler:
         draft_url = "https://isocpp.org/files/papers/D9999R0.pdf"
         state.mark_discovered(draft_url, last_modified_ts=1_700_000_000.0)
 
-        new_paper = Paper(id="P9999R0", title="New Published Paper",
-                          author="Author", date="2025-01-01")
+        new_paper = Paper(
+            id="P9999R0", title="New Published Paper", author="Author", date="2025-01-01"
+        )
         index.papers = {"P9999R0": new_paper}
         prober.run_cycle = AsyncMock(return_value=[])
 
@@ -223,6 +240,7 @@ class TestScheduler:
 
     async def test_poll_once_dp_transition_logged(self, fake_pool, caplog):
         import logging
+
         scheduler, index, prober, _, state = _make_scheduler(fake_pool)
         await scheduler.poll_once()
 
@@ -247,6 +265,7 @@ class TestScheduler:
 
     async def test_poll_once_logs_updated_papers(self, fake_pool, caplog):
         import logging
+
         scheduler, index, prober, _, _ = _make_scheduler(fake_pool)
         await scheduler.poll_once()
 
@@ -261,6 +280,7 @@ class TestScheduler:
 
     async def test_poll_old_hits_logged(self, fake_pool, caplog):
         import logging
+
         scheduler, index, prober, _, _ = _make_scheduler(fake_pool)
         await scheduler.poll_once()
         old = _old_hit()
@@ -305,8 +325,8 @@ class TestScheduler:
         notified = []
         scheduler, _, _, _, _ = _make_scheduler(fake_pool)
         scheduler.notify_callback = notified.append
-        await scheduler.poll_once()   # seed
-        await scheduler.poll_once()   # real poll
+        await scheduler.poll_once()  # seed
+        await scheduler.poll_once()  # real poll
         assert len(notified) == 1
 
     async def test_poll_once_skips_refresh_when_disabled(self, fake_pool):

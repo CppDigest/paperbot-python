@@ -11,8 +11,8 @@ from slack_sdk.errors import SlackApiError
 
 from .config import settings
 from .models import Paper
-from .monitor import DPTransition, PerUserMatches, PollResult
-from .sources import ProbeHit, Tier
+from .monitor import PollResult
+from .sources import Tier
 from .storage import ProbeState, UserWatchlist
 
 log = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ SLACK_MAX_TEXT = 3000
 
 
 # ── Message Queue ─────────────────────────────────────────────────────────────
+
 
 class MessageQueue:
     """Thread-safe, rate-limited Slack ``chat.postMessage`` queue.
@@ -90,7 +91,8 @@ class MessageQueue:
                     retry_after = int(exc.response.headers.get("Retry-After", "5"))
                     log.warning(
                         "MQ  429 rate-limited  channel=%s  retry_after=%ds",
-                        channel, retry_after,
+                        channel,
+                        retry_after,
                     )
                     time.sleep(retry_after)
                     # Re-throttle per-channel timer after sleeping
@@ -105,6 +107,7 @@ class MessageQueue:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _paper_link(paper: Paper) -> str:
     url = paper.url or paper.long_link
@@ -134,6 +137,7 @@ def _fmt_lm(lm: datetime | None) -> str:
 
 # ── Channel notification ──────────────────────────────────────────────────────
 
+
 def notify_channel(app: App, result: PollResult, mq: MessageQueue) -> None:
     """Post batch/non-watchlist events to the configured notification channel."""
     channel = settings.notification_channel
@@ -150,11 +154,13 @@ def notify_channel(app: App, result: PollResult, mq: MessageQueue) -> None:
             d_link = f"<{tr.draft_url}|draft>"
             disc_str = (
                 datetime.fromtimestamp(tr.discovered_at, tz=timezone.utc).strftime("%Y-%m-%d")
-                if tr.discovered_at else "?"
+                if tr.discovered_at
+                else "?"
             )
             lm_str = _fmt_lm(
                 datetime.fromtimestamp(tr.last_modified, tz=timezone.utc)
-                if tr.last_modified else None
+                if tr.last_modified
+                else None
             )
             lines.append(
                 f"• {p_link} — {tr.paper.title}"
@@ -164,7 +170,7 @@ def notify_channel(app: App, result: PollResult, mq: MessageQueue) -> None:
 
     # Frontier probe hits
     frontier_hits = [h for h in result.probe_hits if h.tier == Tier.FRONTIER]
-    other_hits    = [h for h in result.probe_hits if h.tier != Tier.FRONTIER]
+    other_hits = [h for h in result.probe_hits if h.tier != Tier.FRONTIER]
 
     if settings.notify_on_frontier_hit and frontier_hits:
         lines.append(f"*:mag: {len(frontier_hits)} new frontier draft(s):*")
@@ -186,14 +192,18 @@ def notify_channel(app: App, result: PollResult, mq: MessageQueue) -> None:
     batches = _batch_lines(lines, SLACK_MAX_TEXT)
     log.info(
         "NOTIFY  channel=%s  messages=%d  dp=%d  frontier=%d  other=%d",
-        channel, len(batches),
-        len(result.dp_transitions), len(frontier_hits), len(other_hits),
+        channel,
+        len(batches),
+        len(result.dp_transitions),
+        len(frontier_hits),
+        len(other_hits),
     )
     for batch in batches:
         mq.enqueue(channel, batch)
 
 
 # ── Per-user DM notifications ─────────────────────────────────────────────────
+
 
 def notify_users(app: App, result: PollResult, mq: MessageQueue) -> None:
     """Send DMs to users whose watchlist matched new papers or probe hits."""
@@ -224,7 +234,10 @@ def notify_users(app: App, result: PollResult, mq: MessageQueue) -> None:
         batches = _batch_lines(lines, SLACK_MAX_TEXT)
         log.info(
             "NOTIFY-USER  user=%s  messages=%d  papers=%d  hits=%d",
-            user_id, len(batches), len(matches.papers), len(matches.probe_hits),
+            user_id,
+            len(batches),
+            len(matches.papers),
+            len(matches.probe_hits),
         )
         for batch in batches:
             mq.enqueue(user_id, batch)
@@ -249,6 +262,7 @@ def _batch_lines(lines: list[str], max_len: int) -> list[str]:
 
 # ── Command handlers ──────────────────────────────────────────────────────────
 
+
 def register_handlers(
     app: App,
     user_watchlist: UserWatchlist,
@@ -256,7 +270,6 @@ def register_handlers(
     paper_count_fn,
     launch_time: datetime | None = None,
 ) -> None:
-
     def _dispatch(text: str, user_id: str, channel_type: str, say, reply_opts: dict) -> None:
         words = [w for w in text.split() if w]
         if not words:
@@ -413,9 +426,13 @@ def _show_watchlist(
 
 
 def _handle_status(state: ProbeState, paper_count_fn, say, reply_opts: dict) -> None:
-    from datetime import datetime as _dt, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
     last = state.last_poll
-    last_str = _dt.fromtimestamp(last, tz=_tz.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if last else "never"
+    last_str = (
+        _dt.fromtimestamp(last, tz=_tz.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if last else "never"
+    )
     say(
         text=(
             f"*Paperscout Status*\n"
@@ -433,6 +450,7 @@ def _handle_status(state: ProbeState, paper_count_fn, say, reply_opts: dict) -> 
 
 def _handle_version(say, reply_opts: dict) -> None:
     from . import __version__
+
     say(text=f"Paperscout v{__version__}", **reply_opts)
 
 

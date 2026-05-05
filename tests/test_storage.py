@@ -1,10 +1,9 @@
 """Tests for paperscout.storage (PostgreSQL-backed via FakePool)."""
+
 from __future__ import annotations
 
 import time
 from unittest.mock import patch
-
-import pytest
 
 from paperscout.models import Paper
 from paperscout.storage import (
@@ -13,10 +12,9 @@ from paperscout.storage import (
     UserWatchlist,
     iso_paper_number_from_discovered_url,
 )
-from tests.conftest import FakePool
-
 
 # ── PaperCache ────────────────────────────────────────────────────────────────
+
 
 class TestPaperCache:
     def test_is_fresh_when_empty(self, fake_pool):
@@ -77,6 +75,7 @@ class TestPaperCache:
 
 # ── ProbeState ────────────────────────────────────────────────────────────────
 
+
 class TestProbeState:
     def test_initial_state(self, fake_pool):
         state = ProbeState(fake_pool)
@@ -105,12 +104,14 @@ class TestProbeState:
         assert entry["discovered_at"] > 0
 
     def test_iso_paper_number_from_discovered_url(self):
-        assert iso_paper_number_from_discovered_url(
-            "https://isocpp.org/files/papers/D4165R0.pdf"
-        ) == 4165
-        assert iso_paper_number_from_discovered_url(
-            "https://isocpp.org/files/papers/P1234R0.html"
-        ) == 1234
+        assert (
+            iso_paper_number_from_discovered_url("https://isocpp.org/files/papers/D4165R0.pdf")
+            == 4165
+        )
+        assert (
+            iso_paper_number_from_discovered_url("https://isocpp.org/files/papers/P1234R0.html")
+            == 1234
+        )
         assert iso_paper_number_from_discovered_url("https://example.com/") is None
 
     def test_paper_nums_from_discovered_iso_urls(self, fake_pool):
@@ -221,6 +222,7 @@ class TestProbeState:
 
 # ── UserWatchlist ─────────────────────────────────────────────────────────────
 
+
 class TestUserWatchlist:
     def test_add_author_returns_true(self, fake_pool):
         wl = UserWatchlist(fake_pool)
@@ -297,7 +299,6 @@ class TestUserWatchlist:
         assert nums == {2300, 2301}
 
     def test_matches_for_users_author_match(self, fake_pool):
-        from paperscout.monitor import PerUserMatches
         wl = UserWatchlist(fake_pool)
         wl.add("U1", "niebler")
         paper = Paper(id="P2300R11", title="X", author="Eric Niebler")
@@ -307,7 +308,6 @@ class TestUserWatchlist:
         assert paper in matched_papers
 
     def test_matches_for_users_paper_match(self, fake_pool):
-        from paperscout.monitor import PerUserMatches
         wl = UserWatchlist(fake_pool)
         wl.add("U1", "2300")
         paper = Paper(id="P2300R11", title="X", author="Unknown")
@@ -328,12 +328,18 @@ class TestUserWatchlist:
 
     def test_matches_for_users_probe_hit_author(self, fake_pool):
         from paperscout.sources import ProbeHit
+
         wl = UserWatchlist(fake_pool)
         wl.add("U1", "niebler")
         hit = ProbeHit(
             url="https://isocpp.org/files/papers/D9999R0.pdf",
-            prefix="D", number=9999, revision=0, extension=".pdf",
-            tier="frontier", front_text="written by niebler", is_recent=True,
+            prefix="D",
+            number=9999,
+            revision=0,
+            extension=".pdf",
+            tier="frontier",
+            front_text="written by niebler",
+            is_recent=True,
         )
         result = wl.matches_for_users([], [hit])
         assert "U1" in result
@@ -341,12 +347,17 @@ class TestUserWatchlist:
 
     def test_matches_for_users_probe_hit_paper_number(self, fake_pool):
         from paperscout.sources import ProbeHit
+
         wl = UserWatchlist(fake_pool)
         wl.add("U1", "9999")
         hit = ProbeHit(
             url="https://isocpp.org/files/papers/D9999R0.pdf",
-            prefix="D", number=9999, revision=0, extension=".pdf",
-            tier="watchlist", is_recent=True,
+            prefix="D",
+            number=9999,
+            revision=0,
+            extension=".pdf",
+            tier="watchlist",
+            is_recent=True,
         )
         result = wl.matches_for_users([], [hit])
         assert "U1" in result

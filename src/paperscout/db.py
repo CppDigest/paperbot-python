@@ -1,9 +1,9 @@
 """PostgreSQL connection pool and schema initialisation."""
+
 from __future__ import annotations
 
 import logging
 
-import psycopg2
 from psycopg2 import pool as pg_pool
 
 log = logging.getLogger(__name__)

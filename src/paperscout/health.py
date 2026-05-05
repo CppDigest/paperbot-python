@@ -1,12 +1,13 @@
 """Lightweight HTTP health-check endpoint."""
+
 from __future__ import annotations
 
 import json
 import logging
 import threading
+from collections.abc import Callable
 from datetime import datetime, timezone
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Callable
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from . import __version__
 
@@ -32,18 +33,21 @@ class _HealthHandler(BaseHTTPRequestHandler):
         get_disc = getattr(self.state, "get_all_discovered", lambda: {})
         discovered = get_disc()
 
-        body = json.dumps({
-            "version": __version__,
-            "uptime_seconds": int(uptime),
-            "launched_at": self.launch_time.isoformat(),
-            "papers_loaded": self.paper_count_fn(),
-            "last_poll": (
-                datetime.fromtimestamp(last_poll, tz=timezone.utc).isoformat()
-                if last_poll else None
-            ),
-            "discovered_via_probe": len(discovered),
-            "iso_probe_enabled": settings.enable_iso_probe,
-        }).encode()
+        body = json.dumps(
+            {
+                "version": __version__,
+                "uptime_seconds": int(uptime),
+                "launched_at": self.launch_time.isoformat(),
+                "papers_loaded": self.paper_count_fn(),
+                "last_poll": (
+                    datetime.fromtimestamp(last_poll, tz=timezone.utc).isoformat()
+                    if last_poll
+                    else None
+                ),
+                "discovered_via_probe": len(discovered),
+                "iso_probe_enabled": settings.enable_iso_probe,
+            }
+        ).encode()
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

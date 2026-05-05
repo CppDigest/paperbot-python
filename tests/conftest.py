@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json as _json
+import tempfile
 from pathlib import Path
 
 import pytest
 
 from paperscout.config import Settings
-from paperscout.models import Paper
-from paperscout.storage import ProbeState, UserWatchlist
 from paperscout.sources import WG21Index
-import tempfile
+from paperscout.storage import ProbeState
 
 # ── FakePool ─────────────────────────────────────────────────────────────────
 # An in-memory substitute for psycopg2.pool.ThreadedConnectionPool that
@@ -116,9 +115,7 @@ class _FakeCursor:
                 self._s.watchlist[key] = etype
                 self.rowcount = 1
 
-        elif (
-            "DELETE FROM USER_WATCHLIST WHERE SLACK_USER_ID" in su and "AND ENTRY" in su
-        ):
+        elif "DELETE FROM USER_WATCHLIST WHERE SLACK_USER_ID" in su and "AND ENTRY" in su:
             uid, entry = params[0], params[1]
             key = (uid, entry)
             if key in self._s.watchlist:
@@ -131,9 +128,7 @@ class _FakeCursor:
             self._rows = sorted(rows, key=lambda x: (x[1], x[0]))
 
         elif "SELECT ENTRY FROM USER_WATCHLIST WHERE ENTRY_TYPE" in su:
-            self._rows = [
-                (e,) for (_, e), t in self._s.watchlist.items() if t == "paper"
-            ]
+            self._rows = [(e,) for (_, e), t in self._s.watchlist.items() if t == "paper"]
 
         elif "SELECT SLACK_USER_ID, ENTRY, ENTRY_TYPE FROM USER_WATCHLIST" in su:
             self._rows = [(u, e, t) for (u, e), t in self._s.watchlist.items()]

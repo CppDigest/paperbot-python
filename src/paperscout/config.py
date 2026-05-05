@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     poll_interval_minutes: int = 30
     # Minimum seconds to sleep after an overrun cycle (poll took longer than
     # poll_interval_minutes).  Acts as a short cooldown before the next cycle.
-    poll_overrun_cooldown_seconds: int = 300   # 5 min
+    poll_overrun_cooldown_seconds: int = 300  # 5 min
     enable_bulk_wg21: bool = True
     enable_bulk_openstd: bool = True
     enable_iso_probe: bool = True
