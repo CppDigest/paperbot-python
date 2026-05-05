@@ -194,7 +194,7 @@ class FakePool:
 
     def seed_paper_cache_invalid_json(self) -> None:
         """Store a non-JSON string as cached index data (see ``PaperCache.read``)."""
-        self._store.paper_cache["wg21_index"] = ('{not-json', 1.0)
+        self._store.paper_cache["wg21_index"] = ("{not-json", 1.0)
 
 
 # ── Settings factory ──────────────────────────────────────────────────────────

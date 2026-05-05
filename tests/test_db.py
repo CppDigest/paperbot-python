@@ -63,4 +63,3 @@ def test_init_db_putconn_even_when_execute_fails():
         init_db(pool)
 
     pool.putconn.assert_called_once_with(conn)
-

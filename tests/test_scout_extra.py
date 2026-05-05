@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from paperscout.monitor import DiffResult, PerUserMatches, PollResult
 from paperscout.scout import _batch_lines, notify_channel, notify_users
-
 from tests.test_scout import _make_result
 
 

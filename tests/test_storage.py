@@ -400,9 +400,7 @@ class TestUserWatchlistRawSeed:
         assert wl.get_all_watched_paper_nums() == set()
 
     def test_matches_skips_bad_paper_row_author_match_still_works(self, fake_pool):
-        fake_pool.seed_watchlist_raw(
-            [("U1", "oops", "paper"), ("U1", "alice", "author")]
-        )
+        fake_pool.seed_watchlist_raw([("U1", "oops", "paper"), ("U1", "alice", "author")])
         wl = UserWatchlist(fake_pool)
         paper = Paper(id="P2300R11", title="X", author="Alice Wonder")
         result = wl.matches_for_users([paper], [])
