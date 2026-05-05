@@ -275,6 +275,7 @@ def register_handlers(
     launch_time: datetime | None = None,
 ) -> None:
     """Wire Slack events for mentions, DMs, watchlist, status, version, uptime."""
+
     def _dispatch(text: str, user_id: str, channel_type: str, say, reply_opts: dict) -> None:
         words = [w for w in text.split() if w]
         if not words:

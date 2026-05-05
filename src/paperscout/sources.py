@@ -140,6 +140,7 @@ ISO_BASE = "https://isocpp.org/files/papers/"
 
 class Tier(str, Enum):
     """Probe priority bucket for isocpp HEAD requests."""
+
     WATCHLIST = "watchlist"
     FRONTIER = "frontier"
     RECENT = "recent"

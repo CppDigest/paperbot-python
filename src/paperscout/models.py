@@ -9,6 +9,7 @@ from enum import Enum
 
 class PaperPrefix(str, Enum):
     """Paper ID prefix letters (P/D/N, subgroup codes, etc.)."""
+
     D = "D"
     P = "P"
     N = "N"
@@ -23,6 +24,7 @@ class PaperPrefix(str, Enum):
 
 class PaperType(str, Enum):
     """Classification from the wg21.link index ``type`` field."""
+
     PAPER = "paper"
     ISSUE = "issue"
     EDITORIAL = "editorial"
@@ -32,6 +34,7 @@ class PaperType(str, Enum):
 
 class FileExt(str, Enum):
     """Published file extension for a paper artifact."""
+
     PDF = ".pdf"
     HTML = ".html"
 
@@ -44,6 +47,7 @@ _ISSUE_RE = re.compile(r"^(CWG|EWG|LWG|LEWG|FS)(\d+)$", re.IGNORECASE)
 @dataclass(slots=True)
 class Paper:
     """One indexed paper: id, metadata, and derived number/prefix/revision."""
+
     id: str
     title: str = ""
     author: str = ""
