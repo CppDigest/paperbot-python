@@ -418,7 +418,7 @@ PYTHON=python3.12 ./run cov
 
 ### Continuous Integration
 
-The `.github/workflows/ci.yml` workflow runs automatically on every push and pull request to `main`:
+The `.github/workflows/ci.yml` workflow runs automatically on every push and pull request to `main` or `develop`:
 
 - **Matrix**: Python 3.10, 3.11, and 3.12 on `ubuntu-latest`
 - **Steps**: install → `pytest --cov` → coverage summary written to the job summary tab
