@@ -35,6 +35,7 @@ def iso_paper_number_from_discovered_url(url: str) -> int | None:
 
 @contextmanager
 def _conn(pool: ThreadedConnectionPool) -> Generator:
+    """Borrow a connection from *pool*, commit on success, rollback on error."""
     conn = pool.getconn()
     try:
         yield conn
@@ -52,12 +53,7 @@ _CACHE_KEY = "wg21_index"
 
 
 class PaperCache:
-    """TTL-based cache for the wg21.link JSON index stored in PostgreSQL.
-
-    Provides the same ``is_fresh`` / ``read`` / ``read_if_fresh`` / ``write``
-    interface as the old ``JsonCache`` so that ``WG21Index`` needs no further
-    changes.
-    """
+    """TTL-backed JSON cache for wg21.link index (same API as legacy JsonCache)."""
 
     def __init__(self, pool: ThreadedConnectionPool, ttl_hours: float = 1.0):
         self._pool = pool
@@ -120,10 +116,7 @@ class PaperCache:
 
 
 class ProbeState:
-    """PostgreSQL-backed probe state: discovered URLs, miss counters, last-poll.
-
-    All existing methods are preserved with identical signatures.
-    """
+    """Persisted probe bookkeeping: discovered URLs, miss backoff, poll time."""
 
     def __init__(self, pool: ThreadedConnectionPool):
         self._pool = pool
@@ -140,11 +133,7 @@ class ProbeState:
     # ── discovered ───────────────────────────────────────────────────────────
 
     def get_all_discovered(self) -> dict[str, dict]:
-        """Return full discovered map as a dict (for status display / iteration).
-
-        Performs a full table scan -- prefer ``is_discovered()`` for single-URL
-        lookups and call this only when the complete map is actually needed.
-        """
+        """All discovered URLs (full table scan; prefer ``is_discovered`` for one URL)."""
         with _conn(self._pool) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT url, last_modified, discovered_at FROM discovered_urls")
@@ -276,12 +265,7 @@ class ProbeState:
 
 
 class UserWatchlist:
-    """Per-user watchlist stored in the ``user_watchlist`` table.
-
-    Each entry is either an author name substring (``entry_type='author'``)
-    or a paper number string (``entry_type='paper'``).  The type is
-    auto-detected: pure digit strings → paper, anything else → author.
-    """
+    """Slack users' watchlists: author substring or numeric paper id per row."""
 
     def __init__(self, pool: ThreadedConnectionPool):
         self._pool = pool
@@ -356,11 +340,7 @@ class UserWatchlist:
         new_papers: list,  # list[Paper]
         probe_hits: list,  # list[ProbeHit]
     ) -> dict[str, PerUserMatches]:
-        """Compute per-user matched papers and probe hits.
-
-        Returns a dict keyed by ``slack_user_id``.  Only users with at least
-        one match appear in the result.
-        """
+        """Users with at least one author or paper-number match in this poll."""
         from .monitor import PerUserMatches  # local import to avoid circular
 
         all_entries = self._get_all_entries()

@@ -1,3 +1,5 @@
+"""Polling scheduler: diff index snapshots, run probes, dispatch notifications."""
+
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +21,8 @@ log = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class DiffResult:
+    """New and updated papers between two index snapshots."""
+
     new_papers: list[Paper]
     updated_papers: list[Paper]
 
@@ -27,6 +31,7 @@ def diff_snapshots(
     previous: dict[str, Paper],
     current: dict[str, Paper],
 ) -> DiffResult:
+    """Compare two id→paper maps; detect additions and metadata changes."""
     new_papers: list[Paper] = []
     updated_papers: list[Paper] = []
     prev_keys = set(previous.keys())
@@ -53,11 +58,7 @@ def diff_snapshots(
 
 @dataclass
 class PerUserMatches:
-    """Watchlist matches for a single Slack user in one poll cycle.
-
-    Each entry in *papers* and *probe_hits* is a ``(item, match_reason)``
-    tuple where ``match_reason`` is ``'author'`` or ``'paper'``.
-    """
+    """One user's watchlist hits: ``(paper|hit, 'author'|'paper')`` tuples."""
 
     papers: list[tuple[Paper, str]] = field(default_factory=list)
     probe_hits: list[tuple[ProbeHit, str]] = field(default_factory=list)
@@ -68,13 +69,7 @@ class PerUserMatches:
 
 @dataclass(slots=True)
 class DPTransition:
-    """A D-paper draft that has been formally published as its P counterpart.
-
-    *paper*        -- the new P-paper entry from the wg21.link index
-    *draft_url*    -- the D-paper URL we originally probed
-    *last_modified -- server Last-Modified of the draft (Unix timestamp), or None
-    *discovered_at* -- our wall-clock time when we first found the draft
-    """
+    """Index P entry that corresponds to a draft URL we previously probed on isocpp."""
 
     paper: Paper
     draft_url: str
@@ -83,6 +78,8 @@ class DPTransition:
 
 
 class PollResult:
+    """Outcome of one poll: index diff, probe hits, D→P transitions, per-user matches."""
+
     def __init__(
         self,
         diff: DiffResult,
@@ -147,6 +144,7 @@ class Scheduler:
         )
 
     async def poll_once(self) -> PollResult:
+        """Refresh index (if enabled), diff, probe isocpp, compute matches, notify."""
         self._poll_count += 1
         t0 = time.monotonic()
         log.info("POLL-START  poll=%d", self._poll_count)
@@ -272,6 +270,7 @@ class Scheduler:
         return result
 
     async def run_forever(self) -> None:
+        """Run ``poll_once`` on an interval, with overrun cooldown between cycles."""
         interval = self.cfg.poll_interval_minutes * 60
         cooldown = self.cfg.poll_overrun_cooldown_seconds
         log.info(

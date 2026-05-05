@@ -22,14 +22,7 @@ log = logging.getLogger("paperscout")
 
 
 def _setup_logging(data_dir: Path, console_level: str = "INFO", retention_days: int = 7) -> None:
-    """Configure root logger with:
-
-    • Console (stderr) — at *console_level*, for interactive monitoring.
-    • Rotating file (data_dir/paperscout.log) — at *console_level*, rotated
-      midnight each day, keeping *retention_days* days of history.
-
-    Noisy third-party libraries are silenced to WARNING regardless.
-    """
+    """Console + daily rotating file logging; third-party loggers capped at WARNING."""
     data_dir.mkdir(parents=True, exist_ok=True)
 
     fmt = logging.Formatter(
@@ -61,6 +54,7 @@ def _setup_logging(data_dir: Path, console_level: str = "INFO", retention_days: 
 
 
 async def _async_main() -> None:
+    """Start DB, Slack app, health server, and the polling scheduler."""
     data_dir = settings.data_dir
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -135,6 +129,7 @@ async def _async_main() -> None:
 
 
 def main() -> None:
+    """CLI entry: run ``_async_main`` until interrupt."""
     try:
         asyncio.run(_async_main())
     except KeyboardInterrupt:
