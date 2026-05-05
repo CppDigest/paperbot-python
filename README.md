@@ -29,18 +29,18 @@ A Python project that probes the isocpp.org paper system for unpublished D-paper
 
 Go to **OAuth & Permissions** in the left sidebar. Under **Bot Token Scopes**, add:
 
-| Scope | Why |
-|-------|-----|
-| `chat:write` | Post messages to channels and send DMs |
-| `chat:write.public` | Post to public channels the scout hasn't been invited to |
-| `im:history` | Read messages in 1:1 DMs with the scout |
-| `im:write` | Open 1:1 DM conversations to deliver watchlist alerts |
-| `mpim:history` | Read messages in group DMs the scout has been invited to |
-| `mpim:write` | Reply in group DMs |
-| `channels:history` | Read messages in public channels |
-| `groups:history` | Read messages in private channels the scout is invited to |
-| `groups:write` | Reply in private channels |
-| `app_mentions:read` | Respond when someone `@paperscout`s |
+| Scope               | Why                                                       |
+| ------------------- | --------------------------------------------------------- |
+| `chat:write`        | Post messages to channels and send DMs                    |
+| `chat:write.public` | Post to public channels the scout hasn't been invited to  |
+| `im:history`        | Read messages in 1:1 DMs with the scout                   |
+| `im:write`          | Open 1:1 DM conversations to deliver watchlist alerts     |
+| `mpim:history`      | Read messages in group DMs the scout has been invited to  |
+| `mpim:write`        | Reply in group DMs                                        |
+| `channels:history`  | Read messages in public channels                          |
+| `groups:history`    | Read messages in private channels the scout is invited to |
+| `groups:write`      | Reply in private channels                                 |
+| `app_mentions:read` | Respond when someone `@paperscout`s                       |
 
 > **Note on group DMs (`mpim`):** When the scout is invited to a group DM, `watchlist` commands are rejected with a friendly error telling the user to use a 1:1 DM instead. `status` and `help` work normally. The `mpim:history` and `mpim:write` scopes are needed to receive and reply to those messages.
 
@@ -81,7 +81,7 @@ cp .env.example .env
 
 Edit `.env` with your credentials and preferences:
 
-```env
+````env
 SLACK_SIGNING_SECRET=<your signing secret from step 5>
 SLACK_BOT_TOKEN=xoxb-<your bot token from step 5>
 PORT=3000
@@ -102,7 +102,7 @@ Install and run:
 ```bash
 pip install -e .
 python -m paperscout
-```
+````
 
 ### 7. Set the Request URL
 
@@ -137,23 +137,52 @@ ngrok http 3000
 6. Type `@paperscout status` in a channel — should reply in-thread
 7. Check your notification channel after 30 minutes — frontier hits and D→P transitions appear there; personal watchlist matches arrive as DMs
 
-### Production Deployment
+### Deployment
 
-The scout runs as a Docker container deployed via CD on every push to `main`. It connects to the host's shared PostgreSQL and sits behind nginx (TLS on `:443`).
+The scout runs as a Docker container deployed via CD. A push to **`main`** deploys to **production**; a push to **`develop`** deploys to **staging**. Both paths run the same workflow and the same job — only the **GitHub Environment** changes.
 
+```text
+Push to main    → CI tests → SSH into prod    → git pull --ff-only → docker compose up --build → Health check (retry)
+Push to develop → CI tests → SSH into staging → git pull --ff-only → docker compose up --build → Health check (retry)
 ```
-Push to main → CI tests → SSH into server → git pull → docker compose up --build → Health check
-```
 
-Quick start on a fresh server:
+#### Configure GitHub Environments
+
+Create two environments under **Settings → Environments**: `production` and `staging`. Both use the **same secret names** (different values per environment) and a small set of per-environment **Variables**:
+
+| Type     | Name             | Production              | Staging                           |
+| -------- | ---------------- | ----------------------- | --------------------------------- |
+| Secret   | `SERVER_HOST`    | prod host / IP          | staging host / IP                 |
+| Secret   | `SERVER_USER`    | deploy user             | deploy user                       |
+| Secret   | `SERVER_SSH_KEY` | private key             | private key                       |
+| Secret   | `SERVER_PORT`    | optional (default `22`) | optional (default `22`)           |
+| Variable | `DEPLOY_PATH`    | `/opt/paperscout`       | `/opt/paperscout-staging`         |
+| Variable | `DEPLOY_BRANCH`  | `main`                  | `develop`                         |
+| Variable | `HEALTH_PORT`    | `9101`                  | `9102` (or whatever staging maps) |
+
+The workflow picks the environment from the branch (`refs/heads/main` → `production`, `refs/heads/develop` → `staging`), so values like `DEPLOY_PATH` and `HEALTH_PORT` are not hard-coded in the YAML.
+
+> Tip: enable **Required reviewers** on the `production` environment for a manual approval gate before prod deploys.
+
+#### Quick start on a fresh server
 
 ```bash
-# On the server (after Docker, PostgreSQL, and nginx are set up)
+# On the production server (after Docker, PostgreSQL, and nginx are set up)
 git clone https://github.com/cppalliance/paperscout-python.git /opt/paperscout
 cd /opt/paperscout
 cp .env.example .env        # edit with real credentials
 docker compose up -d --build
 curl -sf http://localhost:9101/health
+```
+
+On the **staging** server (separate host or separate path on the same host; must match the `staging` environment's `DEPLOY_PATH` and expose `/health` on `HEALTH_PORT`):
+
+```bash
+git clone -b develop https://github.com/cppalliance/paperscout-python.git /opt/paperscout-staging
+cd /opt/paperscout-staging
+cp .env.example .env   # use staging credentials / DB / Slack app as appropriate
+docker compose up -d --build
+curl -sf http://localhost:9102/health
 ```
 
 See [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md) for the full Ubuntu 22.04 provisioning guide, and [`.github/workflows/cd.yml`](.github/workflows/cd.yml) for the CD pipeline.
@@ -164,14 +193,14 @@ Database backups run daily via [`.github/workflows/db-backup.yml`](.github/workf
 
 Watchlist commands only work in a **1:1 DM** with the scout (each user has their own independent watchlist). `status` and `help` work everywhere — DMs, group DMs, and channels via `@paperscout`.
 
-| Command | Where | Description |
-|---------|-------|-------------|
-| `watchlist` | DM only | Show your personal watchlist |
-| `watchlist list` | DM only | Show your personal watchlist |
-| `watchlist add <name-or-number>` | DM only | Add an author name substring *or* paper number — type is auto-detected |
-| `watchlist remove <name-or-number>` | DM only | Remove an entry from your watchlist |
-| `status` | Anywhere | Show papers loaded, last poll time, probe stats |
-| `help` | Anywhere | Show command summary |
+| Command                             | Where    | Description                                                            |
+| ----------------------------------- | -------- | ---------------------------------------------------------------------- |
+| `watchlist`                         | DM only  | Show your personal watchlist                                           |
+| `watchlist list`                    | DM only  | Show your personal watchlist                                           |
+| `watchlist add <name-or-number>`    | DM only  | Add an author name substring _or_ paper number — type is auto-detected |
+| `watchlist remove <name-or-number>` | DM only  | Remove an entry from your watchlist                                    |
+| `status`                            | Anywhere | Show papers loaded, last poll time, probe stats                        |
+| `help`                              | Anywhere | Show command summary                                                   |
 
 ### Watchlist matching
 
@@ -186,84 +215,84 @@ All parameters are configurable via environment variables or a `.env` file. See 
 
 ### Required
 
-| Variable | Description |
-|----------|-------------|
-| `SLACK_SIGNING_SECRET` | Slack app signing secret |
-| `SLACK_BOT_TOKEN` | Slack bot token (`xoxb-...`) |
-| `DATABASE_URL` | PostgreSQL connection string (`postgresql://user:pass@host:5432/db`) |
+| Variable               | Description                                                          |
+| ---------------------- | -------------------------------------------------------------------- |
+| `SLACK_SIGNING_SECRET` | Slack app signing secret                                             |
+| `SLACK_BOT_TOKEN`      | Slack bot token (`xoxb-...`)                                         |
+| `DATABASE_URL`         | PostgreSQL connection string (`postgresql://user:pass@host:5432/db`) |
 
 ### Scheduling
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `POLL_INTERVAL_MINUTES` | `30` | Main polling cycle interval |
-| `ENABLE_BULK_WG21` | `true` | Fetch wg21.link/index.json each cycle |
-| `ENABLE_BULK_OPENSTD` | `true` | Reserved for open-std.org scraping (not yet scheduled) |
-| `ENABLE_ISO_PROBE` | `true` | Run isocpp.org HEAD probing each cycle |
+| Variable                | Default | Description                                            |
+| ----------------------- | ------- | ------------------------------------------------------ |
+| `POLL_INTERVAL_MINUTES` | `30`    | Main polling cycle interval                            |
+| `ENABLE_BULK_WG21`      | `true`  | Fetch wg21.link/index.json each cycle                  |
+| `ENABLE_BULK_OPENSTD`   | `true`  | Reserved for open-std.org scraping (not yet scheduled) |
+| `ENABLE_ISO_PROBE`      | `true`  | Run isocpp.org HEAD probing each cycle                 |
 
 ### Probe Prefixes / Extensions
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PROBE_PREFIXES` | `["D","P"]` | Prefixes for gap/unknown numbers |
-| `PROBE_EXTENSIONS` | `[".pdf",".html"]` | File extensions to check |
+| Variable           | Default            | Description                      |
+| ------------------ | ------------------ | -------------------------------- |
+| `PROBE_PREFIXES`   | `["D","P"]`        | Prefixes for gap/unknown numbers |
+| `PROBE_EXTENSIONS` | `[".pdf",".html"]` | File extensions to check         |
 
 ### Frontier
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `FRONTIER_WINDOW_ABOVE` | `60` | Numbers above effective frontier to probe every cycle |
-| `FRONTIER_WINDOW_BELOW` | `30` | Numbers below effective frontier to probe every cycle |
-| `FRONTIER_EXPLICIT_RANGES` | `[]` | Additional explicit ranges, e.g. `[{"min":4033,"max":4060}]` |
-| `FRONTIER_GAP_THRESHOLD` | `50` | Max gap between consecutive P-numbers before treating a number as an outlier (prevents pre-assigned far-future numbers like P5000 from shifting the frontier) |
+| Variable                   | Default | Description                                                                                                                                                   |
+| -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FRONTIER_WINDOW_ABOVE`    | `60`    | Numbers above effective frontier to probe every cycle                                                                                                         |
+| `FRONTIER_WINDOW_BELOW`    | `30`    | Numbers below effective frontier to probe every cycle                                                                                                         |
+| `FRONTIER_EXPLICIT_RANGES` | `[]`    | Additional explicit ranges, e.g. `[{"min":4033,"max":4060}]`                                                                                                  |
+| `FRONTIER_GAP_THRESHOLD`   | `50`    | Max gap between consecutive P-numbers before treating a number as an outlier (prevents pre-assigned far-future numbers like P5000 from shifting the frontier) |
 
 ### Hot Probing (every 30-min cycle)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HOT_LOOKBACK_MONTHS` | `6` | Papers with a date within this window are probed every cycle |
-| `HOT_REVISION_DEPTH` | `2` | Revisions ahead of known latest to probe for hot papers |
+| Variable              | Default | Description                                                  |
+| --------------------- | ------- | ------------------------------------------------------------ |
+| `HOT_LOOKBACK_MONTHS` | `6`     | Papers with a date within this window are probed every cycle |
+| `HOT_REVISION_DEPTH`  | `2`     | Revisions ahead of known latest to probe for hot papers      |
 
 ### Cold Probing (full coverage, distributed ≈ once per day)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `COLD_REVISION_DEPTH` | `1` | Revisions ahead of known latest for cold papers |
-| `COLD_CYCLE_DIVISOR` | `48` | Cold pool is split into N slices; each cycle probes 1 slice (48 × 30 min = 24 h) |
-| `GAP_MAX_REV` | `1` | For gap/unknown numbers, probe R0 through this revision |
+| Variable              | Default | Description                                                                      |
+| --------------------- | ------- | -------------------------------------------------------------------------------- |
+| `COLD_REVISION_DEPTH` | `1`     | Revisions ahead of known latest for cold papers                                  |
+| `COLD_CYCLE_DIVISOR`  | `48`    | Cold pool is split into N slices; each cycle probes 1 slice (48 × 30 min = 24 h) |
+| `GAP_MAX_REV`         | `1`     | For gap/unknown numbers, probe R0 through this revision                          |
 
 ### Timestamp-Based Alerting
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ALERT_MODIFIED_HOURS` | `24` | Only notify for hits where the server's `Last-Modified` header is within this many hours of now. Falls back to "alert" when the header is absent. |
+| Variable               | Default | Description                                                                                                                                       |
+| ---------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ALERT_MODIFIED_HOURS` | `24`    | Only notify for hits where the server's `Last-Modified` header is within this many hours of now. Falls back to "alert" when the header is absent. |
 
 ### HTTP Client
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HTTP_CONCURRENCY` | `20` | Maximum simultaneous probe requests |
-| `HTTP_TIMEOUT_SECONDS` | `10` | Request timeout for HEAD probes |
-| `HTTP_USE_HTTP2` | `true` | Enable HTTP/2 for all requests |
+| Variable               | Default | Description                         |
+| ---------------------- | ------- | ----------------------------------- |
+| `HTTP_CONCURRENCY`     | `20`    | Maximum simultaneous probe requests |
+| `HTTP_TIMEOUT_SECONDS` | `10`    | Request timeout for HEAD probes     |
+| `HTTP_USE_HTTP2`       | `true`  | Enable HTTP/2 for all requests      |
 
 ### Notifications
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NOTIFICATION_CHANNEL` | `""` | Slack channel ID for general alerts (frontier hits, D→P transitions); empty = disabled |
-| `NOTIFY_ON_FRONTIER_HIT` | `true` | Notify on recently modified draft near the frontier |
-| `NOTIFY_ON_ANY_DRAFT` | `true` | Notify on any other recently modified draft |
-| `NOTIFY_ON_DP_TRANSITION` | `true` | Notify when a tracked D-paper appears in the index as its published P counterpart |
+| Variable                  | Default | Description                                                                            |
+| ------------------------- | ------- | -------------------------------------------------------------------------------------- |
+| `NOTIFICATION_CHANNEL`    | `""`    | Slack channel ID for general alerts (frontier hits, D→P transitions); empty = disabled |
+| `NOTIFY_ON_FRONTIER_HIT`  | `true`  | Notify on recently modified draft near the frontier                                    |
+| `NOTIFY_ON_ANY_DRAFT`     | `true`  | Notify on any other recently modified draft                                            |
+| `NOTIFY_ON_DP_TRANSITION` | `true`  | Notify when a tracked D-paper appears in the index as its published P counterpart      |
 
 > Personal watchlist matches (author or paper number) are always sent as a DM to the matching user — they are not posted to `NOTIFICATION_CHANNEL`.
 
 ### Storage
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `""` | PostgreSQL DSN — required |
-| `DATA_DIR` | `./data` | Directory for log files |
-| `CACHE_TTL_HOURS` | `1` | How long the wg21.link index cache is considered fresh |
+| Variable          | Default  | Description                                            |
+| ----------------- | -------- | ------------------------------------------------------ |
+| `DATABASE_URL`    | `""`     | PostgreSQL DSN — required                              |
+| `DATA_DIR`        | `./data` | Directory for log files                                |
+| `CACHE_TTL_HOURS` | `1`      | How long the wg21.link index cache is considered fresh |
 
 ## Architecture
 
@@ -294,25 +323,25 @@ paperscout-python/
 
 ### PostgreSQL Schema
 
-| Table | Purpose |
-|-------|---------|
-| `paper_cache` | TTL-cached wg21.link index JSON blob |
-| `discovered_urls` | All URLs seen by the ISO prober with timestamps |
-| `probe_miss_counts` | Exponential backoff counters per paper number |
-| `poll_state` | Last-poll timestamp (singleton row) |
-| `user_watchlist` | Per-user author/paper entries with type discrimination |
+| Table               | Purpose                                                |
+| ------------------- | ------------------------------------------------------ |
+| `paper_cache`       | TTL-cached wg21.link index JSON blob                   |
+| `discovered_urls`   | All URLs seen by the ISO prober with timestamps        |
+| `probe_miss_counts` | Exponential backoff counters per paper number          |
+| `poll_state`        | Last-poll timestamp (singleton row)                    |
+| `user_watchlist`    | Per-user author/paper entries with type discrimination |
 
 ### Two-Frequency Probing Strategy
 
 Every P-number from 1 to the effective frontier is probed. Numbers are divided into a **hot** set (probed every 30 min) and a **cold** pool (probed once per day by distributing 1/48 of the pool each cycle).
 
-| Frequency | What | Condition | Per-cycle URLs |
-|-----------|------|-----------|----------------|
-| **Hot** (every cycle) | Watchlist papers | union of all users' watched paper numbers | D-prefix, latest+1..+2, pdf+html |
-| **Hot** (every cycle) | Frontier numbers | ±window around effective frontier | D+P, R0..R1 for unknowns; D, latest+1..+2 for known |
-| **Hot** (every cycle) | Recently active papers | date within `HOT_LOOKBACK_MONTHS` | D-prefix, latest+1..+2, pdf+html |
-| **Cold** (1/48 per cycle ≈ daily) | All other P-numbers | everything else | D-prefix, latest+1, pdf+html |
-| **Cold** (1/48 per cycle) | Gap numbers (no index entry) | 1..frontier minus known | D+P, R0..R1, pdf+html |
+| Frequency                         | What                         | Condition                                 | Per-cycle URLs                                      |
+| --------------------------------- | ---------------------------- | ----------------------------------------- | --------------------------------------------------- |
+| **Hot** (every cycle)             | Watchlist papers             | union of all users' watched paper numbers | D-prefix, latest+1..+2, pdf+html                    |
+| **Hot** (every cycle)             | Frontier numbers             | ±window around effective frontier         | D+P, R0..R1 for unknowns; D, latest+1..+2 for known |
+| **Hot** (every cycle)             | Recently active papers       | date within `HOT_LOOKBACK_MONTHS`         | D-prefix, latest+1..+2, pdf+html                    |
+| **Cold** (1/48 per cycle ≈ daily) | All other P-numbers          | everything else                           | D-prefix, latest+1, pdf+html                        |
+| **Cold** (1/48 per cycle)         | Gap numbers (no index entry) | 1..frontier minus known                   | D+P, R0..R1, pdf+html                               |
 
 Typical per-cycle request count: **~1,600–2,000 HEAD requests** (~8–10 s at 20 concurrent, 100 ms latency). A full sweep of all ~4,000 P-numbers completes within ~24 h of continuous 30-min polling.
 
@@ -328,11 +357,11 @@ The `Last-Modified` timestamp is shown in every notification message.
 
 ## Data Sources
 
-| Source | URL | What it covers |
-|--------|-----|---------------|
-| wg21.link | `https://wg21.link/index.json` | All published P/N papers with metadata |
-| open-std.org | `https://www.open-std.org/jtc1/sc22/wg21/docs/papers/{year}/` | Yearly HTML tables (scraper defined, not yet scheduled) |
-| isocpp.org | `https://isocpp.org/files/papers/{D\|P}{num}R{rev}.{pdf\|html}` | D-paper drafts (no index, requires probing) |
+| Source       | URL                                                             | What it covers                                          |
+| ------------ | --------------------------------------------------------------- | ------------------------------------------------------- |
+| wg21.link    | `https://wg21.link/index.json`                                  | All published P/N papers with metadata                  |
+| open-std.org | `https://www.open-std.org/jtc1/sc22/wg21/docs/papers/{year}/`   | Yearly HTML tables (scraper defined, not yet scheduled) |
+| isocpp.org   | `https://isocpp.org/files/papers/{D\|P}{num}R{rev}.{pdf\|html}` | D-paper drafts (no index, requires probing)             |
 
 ## Dependencies
 
@@ -384,7 +413,7 @@ PYTHON=python3.12 ./run cov
 
 ### Continuous Integration
 
-The `.github/workflows/ci.yml` workflow runs automatically on every push and pull request to `main`:
+The `.github/workflows/ci.yml` workflow runs automatically on every push and pull request to `main` or `develop`:
 
 - **Matrix**: Python 3.10, 3.11, and 3.12 on `ubuntu-latest`
 - **Steps**: install → `pytest --cov` → coverage summary written to the job summary tab
@@ -395,13 +424,17 @@ Coverage details are visible in the **Summary** tab of each workflow run (render
 
 ### Continuous Deployment
 
-The `.github/workflows/cd.yml` workflow runs on every push to `main`:
+The `.github/workflows/cd.yml` workflow runs on push to `main` or `develop` (and supports `workflow_dispatch` from either branch):
 
-1. **Test** — single Python 3.12 pytest run as a gate
-2. **Deploy** — SSHes into the server, runs `git pull`, and rebuilds the container with `docker compose up -d --build`
-3. **Health check** — verifies `GET /health` returns 200
+1. **Test** — single Python 3.12 pytest run as a gate (re-uses the same coverage threshold as CI).
+2. **Deploy** — single environment-driven job:
+   - Selects the **GitHub Environment** from the branch (`main` → `production`, `develop` → `staging`).
+   - SSHes using the environment-scoped secrets (`SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`, optional `SERVER_PORT`).
+   - Reads per-environment **variables** (`DEPLOY_PATH`, `DEPLOY_BRANCH`, `HEALTH_PORT`) so the same workflow targets prod or staging without code changes.
+   - Runs `git fetch` + `git checkout` + `git pull --ff-only` against `DEPLOY_BRANCH` to keep deploys deterministic, then `docker compose up -d --build paperscout`.
+3. **Health check** — bounded retry loop (12 × 5s) against `http://localhost:${HEALTH_PORT}/health`; the job fails if the endpoint never returns 200.
 
-The app container connects to the host's shared PostgreSQL via `host.docker.internal`. Restarting the container has no effect on the database.
+A `concurrency` group keyed by branch prevents overlapping deploys to the same environment. Production and staging targets stay independent because the secret values and variable values differ per environment.
 
 ### Database Backups
 
@@ -411,4 +444,4 @@ The `.github/workflows/db-backup.yml` workflow runs daily at 3 AM UTC (and suppo
 2. Uploads the dump to Google Cloud Storage (`gs://paperscout-backups/`)
 3. Old backups are auto-pruned by a GCS lifecycle rule (30 days)
 
-Required GitHub Secrets for CD and backups are documented in [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md#9-github-secrets-checklist).
+CD secrets and variables are configured per **GitHub Environment** (`production` and `staging`); see the table in [Deployment](#deployment). Other secrets (e.g. database backups) are documented in [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md#9-github-secrets-checklist).

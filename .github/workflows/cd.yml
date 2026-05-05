@@ -2,7 +2,15 @@ name: CD
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -25,7 +33,13 @@ jobs:
   deploy:
     name: Deploy
     needs: test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: >-
+      ${{ github.ref == 'refs/heads/main' && 'production'
+       || github.ref == 'refs/heads/develop' && 'staging'
+       || '' }}
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
@@ -34,9 +48,13 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
+          command_timeout: 15m
           script: |
-            cd /opt/paperscout
-            git pull origin main
+            set -euo pipefail
+            cd "${{ vars.DEPLOY_PATH }}"
+            git fetch origin "${{ vars.DEPLOY_BRANCH }}"
+            git checkout "${{ vars.DEPLOY_BRANCH }}"
+            git pull --ff-only origin "${{ vars.DEPLOY_BRANCH }}"
             docker compose up -d --build paperscout
 
       - name: Health check
@@ -46,6 +64,16 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
+          command_timeout: 5m
           script: |
-            sleep 5
-            curl -sf http://localhost:9101/health
+            set -euo pipefail
+            url="http://localhost:${{ vars.HEALTH_PORT }}/health"
+            for i in $(seq 1 12); do
+              if curl -sf "$url"; then
+                echo "Health check OK after attempt $i"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Health check failed after 12 attempts"
+            exit 1
