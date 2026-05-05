@@ -2,11 +2,6 @@
 
 Thank you for your interest in improving paperscout. This document describes how we work, how to run checks locally, and how releases are cut.
 
-## Community standards
-
-- Please read the [Code of Conduct](CODE_OF_CONDUCT.md). Participation is governed by the **Contributor Covenant 2.1**.
-- Report **security vulnerabilities** privately — see [SECURITY.md](SECURITY.md). Do not open public issues for undisclosed security problems.
-
 ## Where to start
 
 - **[docs/onboarding.md](docs/onboarding.md)** — clone, database, `.env`, tests, and running the app locally.

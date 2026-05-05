@@ -52,16 +52,6 @@ Outbound Slack messages go through a **background queue** (see [`scout.py`](../s
 - **`ENABLE_BULK_OPENSTD` / open-std.org** — Code paths exist in [`sources.py`](../src/paperscout/sources.py); bulk open-std scheduling is **not** integrated into the main poll loop yet (README notes “not yet scheduled”).
 - **Eval / roadmap items** — If your org keeps a separate eval or ticket backlog, link it here; this repo does not ship a frozen “eval” document.
 
-## Credentials and contacts
-
-| Secret / asset                                                     | Who to ask                                                                                |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| **Slack app** (signing secret, bot token, app-level tokens if any) | `#paperscout-ops` (primary) / `ops-oncall@...` (backup), owned by <team-or-role>.         |
-| **PostgreSQL** (production DSN, backup restore)                    | `dba-oncall@...` / `#db-operations`, owned by <team-or-role> for the `DATABASE_URL` host. |
-| **GitHub Environments** (SSH deploy, GCS backup credentials)       | Documented in README **Deployment** and SERVER_SETUP **§9 GitHub secrets checklist**.     |
-
-Replace generic phrases above with **CppAlliance**-specific contacts (Slack channel, email list, or on-call) as soon as they are approved for a public or internal wiki.
-
 ## Related documents
 
 - [onboarding.md](onboarding.md) — linear setup for developers
