@@ -110,6 +110,25 @@ class TestDiffSnapshots:
         result = diff_snapshots({}, {})
         assert result.new_papers == [] and result.updated_papers == []
 
+    @pytest.mark.parametrize(
+        "field,new_val",
+        [
+            ("title", "New Title"),
+            ("author", "New Author"),
+            ("date", "2025-01-01"),
+            ("long_link", "https://new.example/paper.pdf"),
+        ],
+    )
+    def test_updated_paper_detected_single_field(self, field, new_val):
+        base = dict(title="T", author="A", date="2024-01-01", long_link="")
+        old_kw = dict(base)
+        new_kw = dict(base)
+        new_kw[field] = new_val
+        old_p = Paper(id="P2300R10", **old_kw)
+        new_p = Paper(id="P2300R10", **new_kw)
+        result = diff_snapshots({"P2300R10": old_p}, {"P2300R10": new_p})
+        assert len(result.updated_papers) == 1
+
 
 # ── PollResult ────────────────────────────────────────────────────────────────
 

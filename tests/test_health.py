@@ -66,3 +66,18 @@ class TestHealthEndpoint:
         with pytest.raises(urllib.error.HTTPError) as exc_info:
             urllib.request.urlopen(f"{health_url}/notfound")
         assert exc_info.value.code == 404
+
+    def test_iso_probe_flag_follows_config_settings(self, health_url):
+        import paperscout.config as cfg
+
+        original = cfg.settings.enable_iso_probe
+        try:
+            cfg.settings.enable_iso_probe = False
+            data = json.loads(urllib.request.urlopen(f"{health_url}/health").read())
+            assert data["iso_probe_enabled"] is False
+
+            cfg.settings.enable_iso_probe = True
+            data = json.loads(urllib.request.urlopen(f"{health_url}/health").read())
+            assert data["iso_probe_enabled"] is True
+        finally:
+            cfg.settings.enable_iso_probe = original
