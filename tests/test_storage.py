@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from unittest.mock import patch
+
+import pytest
 
 from paperscout.models import Paper
 from paperscout.storage import (
@@ -361,3 +364,56 @@ class TestUserWatchlist:
         )
         result = wl.matches_for_users([], [hit])
         assert "U1" in result
+
+
+# ── PaperCache edge cases ──────────────────────────────────────────────────────
+
+
+class TestPaperCacheInvalidJson:
+    def test_read_returns_none_when_json_decode_fails(self, fake_pool, caplog):
+        fake_pool.seed_paper_cache_invalid_json()
+        cache = PaperCache(fake_pool)
+        with caplog.at_level(logging.WARNING):
+            assert cache.read() is None
+        assert "Failed to parse cached index JSON" in caplog.text
+
+
+# ── Transaction rollback ───────────────────────────────────────────────────────
+
+
+class TestConnRollback:
+    def test_user_watchlist_add_rolls_back_on_commit_failure(self, fake_pool):
+        fake_pool.fail_on_commit = True
+        wl = UserWatchlist(fake_pool)
+        with pytest.raises(RuntimeError, match="simulated"):
+            wl.add("U1", "alice")
+        assert fake_pool.rollback_count == 1
+
+
+# ── Direct watchlist seeding (invalid DB rows) ─────────────────────────────────
+
+
+class TestUserWatchlistRawSeed:
+    def test_get_all_watched_skips_non_numeric_paper_entries(self, fake_pool):
+        fake_pool.seed_watchlist_raw([("U1", "oops", "paper")])
+        wl = UserWatchlist(fake_pool)
+        assert wl.get_all_watched_paper_nums() == set()
+
+    def test_matches_skips_bad_paper_row_author_match_still_works(self, fake_pool):
+        fake_pool.seed_watchlist_raw(
+            [("U1", "oops", "paper"), ("U1", "alice", "author")]
+        )
+        wl = UserWatchlist(fake_pool)
+        paper = Paper(id="P2300R11", title="X", author="Alice Wonder")
+        result = wl.matches_for_users([paper], [])
+        assert "U1" in result
+        reasons = [r for _, r in result["U1"].papers]
+        assert "author" in reasons
+
+    def test_matches_paper_with_none_number_never_paper_matched(self, fake_pool):
+        wl = UserWatchlist(fake_pool)
+        wl.add("U1", "2300")
+        paper = Paper(id="UNKNOWN", title="X", author="Someone")
+        assert paper.number is None
+        result = wl.matches_for_users([paper], [])
+        assert "U1" not in result

@@ -141,17 +141,23 @@ class _FakeCursor:
 
 
 class _FakeConn:
-    def __init__(self, store: _FakeStore):
+    def __init__(self, store: _FakeStore, pool: FakePool | None = None):
         self._cur = _FakeCursor(store)
+        self._pool = pool
+        self.rollback_called = False
 
     def cursor(self):
         return self._cur
 
     def commit(self):
-        pass
+        if self._pool is not None and self._pool.fail_on_commit:
+            self._pool.fail_on_commit = False
+            raise RuntimeError("simulated commit failure")
 
     def rollback(self):
-        pass
+        self.rollback_called = True
+        if self._pool is not None:
+            self._pool.rollback_count += 1
 
 
 class FakePool:
@@ -159,16 +165,36 @@ class FakePool:
 
     Each instance has its own isolated store.  Pass the same instance to
     multiple storage objects when they need to share state.
+
+    Optional test hooks:
+
+    * ``fail_on_commit`` — next ``commit()`` raises ``RuntimeError`` once,
+      exercising ``storage._conn`` rollback paths.
+    * ``seed_watchlist_raw(rows)`` — insert ``(slack_user_id, entry, entry_type)``
+      rows directly (bypasses ``UserWatchlist.add`` validation).
+    * ``seed_paper_cache_invalid_json()`` — store malformed JSON for the
+      wg21 index cache key so ``PaperCache.read()`` hits the decode-error path.
     """
 
     def __init__(self):
         self._store = _FakeStore()
+        self.fail_on_commit = False
+        self.rollback_count = 0
 
     def getconn(self):
-        return _FakeConn(self._store)
+        return _FakeConn(self._store, self)
 
     def putconn(self, conn):
         pass
+
+    def seed_watchlist_raw(self, rows: list[tuple[str, str, str]]) -> None:
+        """Directly populate ``user_watchlist`` rows for edge-case tests."""
+        for uid, entry, etype in rows:
+            self._store.watchlist[(uid, entry)] = etype
+
+    def seed_paper_cache_invalid_json(self) -> None:
+        """Store a non-JSON string as cached index data (see ``PaperCache.read``)."""
+        self._store.paper_cache["wg21_index"] = ('{not-json', 1.0)
 
 
 # ── Settings factory ──────────────────────────────────────────────────────────

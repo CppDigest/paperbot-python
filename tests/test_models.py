@@ -197,3 +197,21 @@ def test_paper_default_fields():
     assert p.long_link == ""
     assert p.github_url == ""
     assert p.issues == []
+
+
+@pytest.mark.parametrize(
+    "pid,exp_prefix,exp_num,exp_rev",
+    [
+        ("P0001R0", "P", 1, 0),
+        ("p0001r0", "P", 1, 0),
+        ("D2300R10", "D", 2300, 10),
+        ("N4950", "N", 4950, None),
+        ("CWG123", "CWG", 123, None),
+        ("garbage", "", None, None),
+    ],
+)
+def test_paper_id_prefix_number_revision(pid, exp_prefix, exp_num, exp_rev):
+    p = Paper(id=pid)
+    assert p.prefix == exp_prefix
+    assert p.number == exp_num
+    assert p.revision == exp_rev
