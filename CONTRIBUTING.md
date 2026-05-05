@@ -16,9 +16,9 @@ Thank you for your interest in improving paperscout. This document describes how
 ## Workflow
 
 1. **Fork** the repository (if you lack direct push access) and **clone** your fork.
-2. Create a **feature branch** from `main` (this repo’s default branch; open PRs target `main`).
+2. Create a **feature branch** from the active integration branch (currently `develop`; confirm repo default/protection rules before opening).
 3. Make focused commits with clear messages.
-4. Open a **pull request** against `main`. Use the PR template; link related issues when applicable.
+4. Open a **pull request** against the designated target branch (`develop` or `main`, per current release flow). Use the PR template; link related issues when applicable.
 5. Ensure **CI is green** (tests + coverage + lint hooks — see below).
 
 ### Code owners
@@ -42,7 +42,7 @@ pip install -e ".[dev]"
 # or: make check
 ```
 
-CI runs the same coverage gate on Python **3.10**, **3.11**, and **3.12** (see `.github/workflows/ci.yml`).
+CI runs `pre-commit run --all-files` for pushes/PRs on configured branches (currently `main` and `develop`; see `.github/workflows/ci.yml`).
 
 ### Lint and format (Ruff + pre-commit)
 

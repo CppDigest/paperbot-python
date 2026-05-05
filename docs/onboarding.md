@@ -7,22 +7,22 @@ This guide is ordered so a new developer can **run the test suite** and **start 
 - **Python** 3.10, 3.11, or 3.12 (`requires-python` in [pyproject.toml](../pyproject.toml))
 - **PostgreSQL** (local or remote) — the app stores all durable state in Postgres
 - **Git**
-- Optional: **Docker** + Docker Compose for containerized runs (see [Deployment](#deployment))
+- Optional: **Docker** + Docker Compose for containerized runs (see [Deployment](`#deployment-summary`))
 
 ## Repository layout
 
-| Path | Role |
-| ---- | ---- |
-| [`src/paperscout/__init__.py`](../src/paperscout/__init__.py) | Package marker / version surface for the distribution. |
-| [`src/paperscout/__main__.py`](../src/paperscout/__main__.py) | Entry point for `python -m paperscout`: logging, DB pool, Slack app, health server, async scheduler. |
-| [`src/paperscout/config.py`](../src/paperscout/config.py) | Pydantic `Settings` — all configuration from environment / `.env`. |
-| [`src/paperscout/models.py`](../src/paperscout/models.py) | `Paper` dataclass and enums for paper IDs, types, and file extensions. |
-| [`src/paperscout/sources.py`](../src/paperscout/sources.py) | `WG21Index` (index fetch + cache), `ISOProber` (async HEAD probing of isocpp.org), open-std scraper hooks. |
-| [`src/paperscout/monitor.py`](../src/paperscout/monitor.py) | `Scheduler`, index diffing, D→P transition detection, per-user watchlist match orchestration. |
-| [`src/paperscout/scout.py`](../src/paperscout/scout.py) | Slack Bolt app, message queue, channel/DM notifications, command handlers. |
-| [`src/paperscout/storage.py`](../src/paperscout/storage.py) | PostgreSQL-backed paper cache, probe state, and per-user watchlists. |
-| [`src/paperscout/db.py`](../src/paperscout/db.py) | Connection pool setup and schema DDL. |
-| [`src/paperscout/health.py`](../src/paperscout/health.py) | Small HTTP server exposing `GET /health` for orchestration and CD checks. |
+| Path                                                          | Role                                                                                                       |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| [`src/paperscout/__init__.py`](../src/paperscout/__init__.py) | Package marker / version surface for the distribution.                                                     |
+| [`src/paperscout/__main__.py`](../src/paperscout/__main__.py) | Entry point for `python -m paperscout`: logging, DB pool, Slack app, health server, async scheduler.       |
+| [`src/paperscout/config.py`](../src/paperscout/config.py)     | Pydantic `Settings` — all configuration from environment / `.env`.                                         |
+| [`src/paperscout/models.py`](../src/paperscout/models.py)     | `Paper` dataclass and enums for paper IDs, types, and file extensions.                                     |
+| [`src/paperscout/sources.py`](../src/paperscout/sources.py)   | `WG21Index` (index fetch + cache), `ISOProber` (async HEAD probing of isocpp.org), open-std scraper hooks. |
+| [`src/paperscout/monitor.py`](../src/paperscout/monitor.py)   | `Scheduler`, index diffing, D→P transition detection, per-user watchlist match orchestration.              |
+| [`src/paperscout/scout.py`](../src/paperscout/scout.py)       | Slack Bolt app, message queue, channel/DM notifications, command handlers.                                 |
+| [`src/paperscout/storage.py`](../src/paperscout/storage.py)   | PostgreSQL-backed paper cache, probe state, and per-user watchlists.                                       |
+| [`src/paperscout/db.py`](../src/paperscout/db.py)             | Connection pool setup and schema DDL.                                                                      |
+| [`src/paperscout/health.py`](../src/paperscout/health.py)     | Small HTTP server exposing `GET /health` for orchestration and CD checks.                                  |
 
 Supporting directories: [`tests/`](../tests/) (pytest), [`deploy/`](../deploy/) (nginx sample + server provisioning), [`.github/workflows/`](../.github/workflows/) (CI/CD).
 
@@ -113,7 +113,6 @@ Production-style flow:
    ```
 
 3. Health check from the host (see [docker-compose.yml](../docker-compose.yml) port mappings):
-
    - App (Slack): `127.0.0.1:9100` → container `3000`
    - Health: `127.0.0.1:9101` → container `8080` → e.g. `curl -sf http://127.0.0.1:9101/health`
 
@@ -129,82 +128,82 @@ Every key from [`.env.example`](../.env.example) is listed below. Names in `.env
 
 ### Slack and server
 
-| Variable | Required | Default / example | Meaning |
-| -------- | -------- | ----------------- | ------- |
-| `SLACK_SIGNING_SECRET` | Yes (for Slack) | — | Slack app signing secret; verifies incoming requests. |
-| `SLACK_BOT_TOKEN` | Yes (for Slack) | — | Bot User OAuth token (`xoxb-…`). |
-| `PORT` | No | `3000` | Port for the Slack Bolt HTTP listener. |
+| Variable               | Required        | Default / example | Meaning                                               |
+| ---------------------- | --------------- | ----------------- | ----------------------------------------------------- |
+| `SLACK_SIGNING_SECRET` | Yes (for Slack) | —                 | Slack app signing secret; verifies incoming requests. |
+| `SLACK_BOT_TOKEN`      | Yes (for Slack) | —                 | Bot User OAuth token (`xoxb-…`).                      |
+| `PORT`                 | No              | `3000`            | Port for the Slack Bolt HTTP listener.                |
 
 ### Database
 
-| Variable | Required | Meaning |
-| -------- | -------- | ------- |
-| `DATABASE_URL` | Yes | PostgreSQL DSN, e.g. `postgresql://user:pass@host:5432/paperscout`. In Docker against host Postgres, `host.docker.internal` is typical (see `.env.example`). |
+| Variable       | Required | Meaning                                                                                                                                                      |
+| -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL` | Yes      | PostgreSQL DSN, e.g. `postgresql://user:pass@host:5432/paperscout`. In Docker against host Postgres, `host.docker.internal` is typical (see `.env.example`). |
 
 ### Scheduling and sources
 
-| Variable | Default | Meaning |
-| -------- | ------- | ------- |
-| `POLL_INTERVAL_MINUTES` | `30` | Target wall-clock spacing between poll cycles (see [Scheduling](#scheduling-asyncio-loop) below). |
-| `POLL_OVERRUN_COOLDOWN_SECONDS` | `300` | **Minimum** sleep after any cycle that ran longer than one interval — avoids hammering the network if a cycle overruns. |
-| `ENABLE_BULK_WG21` | `true` | Fetch and parse wg21.link index each cycle when enabled. |
-| `ENABLE_BULK_OPENSTD` | `true` | Reserved for open-std.org bulk fetch (not yet wired into the scheduler). |
-| `ENABLE_ISO_PROBE` | `true` | Run isocpp.org HEAD probing each cycle when enabled. |
+| Variable                        | Default | Meaning                                                                                                                 |
+| ------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `POLL_INTERVAL_MINUTES`         | `30`    | Target wall-clock spacing between poll cycles (see [Scheduling](#scheduling-asyncio-loop) below).                       |
+| `POLL_OVERRUN_COOLDOWN_SECONDS` | `300`   | **Minimum** sleep after any cycle that ran longer than one interval — avoids hammering the network if a cycle overruns. |
+| `ENABLE_BULK_WG21`              | `true`  | Fetch and parse wg21.link index each cycle when enabled.                                                                |
+| `ENABLE_BULK_OPENSTD`           | `true`  | Reserved for open-std.org bulk fetch (not yet wired into the scheduler).                                                |
+| `ENABLE_ISO_PROBE`              | `true`  | Run isocpp.org HEAD probing each cycle when enabled.                                                                    |
 
 ### Probe prefixes / extensions
 
-| Variable | Default | Meaning |
-| -------- | ------- | ------- |
-| `PROBE_PREFIXES` | `["D","P"]` | JSON list of URL prefixes for gap / unknown numbers. |
-| `PROBE_EXTENSIONS` | `[".pdf",".html"]` | JSON list of file extensions to probe. |
+| Variable           | Default            | Meaning                                              |
+| ------------------ | ------------------ | ---------------------------------------------------- |
+| `PROBE_PREFIXES`   | `["D","P"]`        | JSON list of URL prefixes for gap / unknown numbers. |
+| `PROBE_EXTENSIONS` | `[".pdf",".html"]` | JSON list of file extensions to probe.               |
 
 ### Frontier
 
-| Variable | Default | Meaning |
-| -------- | ------- | ------- |
-| `FRONTIER_WINDOW_ABOVE` | `60` | How many P-numbers above the effective frontier to treat as hot each cycle. |
-| `FRONTIER_WINDOW_BELOW` | `30` | How many below the frontier window. |
-| `FRONTIER_EXPLICIT_RANGES` | `[]` | JSON list of `{"min": n, "max": m}` extra hot ranges. |
-| `FRONTIER_GAP_THRESHOLD` | `50` | Max gap between consecutive P-numbers before a number is treated as an outlier for frontier calculation. |
+| Variable                   | Default | Meaning                                                                                                  |
+| -------------------------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `FRONTIER_WINDOW_ABOVE`    | `60`    | How many P-numbers above the effective frontier to treat as hot each cycle.                              |
+| `FRONTIER_WINDOW_BELOW`    | `30`    | How many below the frontier window.                                                                      |
+| `FRONTIER_EXPLICIT_RANGES` | `[]`    | JSON list of `{"min": n, "max": m}` extra hot ranges.                                                    |
+| `FRONTIER_GAP_THRESHOLD`   | `50`    | Max gap between consecutive P-numbers before a number is treated as an outlier for frontier calculation. |
 
 ### Hot / cold probing
 
-| Variable | Default | Meaning |
-| -------- | ------- | ------- |
-| `HOT_LOOKBACK_MONTHS` | `6` | Papers with index dates in this window are probed every cycle (hot). |
-| `HOT_REVISION_DEPTH` | `2` | Extra revision indices ahead of the known latest for hot numbers. |
-| `COLD_REVISION_DEPTH` | `1` | Revisions ahead of known latest for cold pool. |
-| `COLD_CYCLE_DIVISOR` | `48` | Cold pool split into this many slices; one slice per cycle (48×30 min ≈ 24 h full sweep). |
-| `GAP_MAX_REV` | `1` | For gap/unknown numbers, probe revisions `R0` … `R` this value. |
+| Variable              | Default | Meaning                                                                                   |
+| --------------------- | ------- | ----------------------------------------------------------------------------------------- |
+| `HOT_LOOKBACK_MONTHS` | `6`     | Papers with index dates in this window are probed every cycle (hot).                      |
+| `HOT_REVISION_DEPTH`  | `2`     | Extra revision indices ahead of the known latest for hot numbers.                         |
+| `COLD_REVISION_DEPTH` | `1`     | Revisions ahead of known latest for cold pool.                                            |
+| `COLD_CYCLE_DIVISOR`  | `48`    | Cold pool split into this many slices; one slice per cycle (48×30 min ≈ 24 h full sweep). |
+| `GAP_MAX_REV`         | `1`     | For gap/unknown numbers, probe revisions `R0` … `R` this value.                           |
 
 ### Alerting and HTTP client
 
-| Variable | Default | Meaning |
-| -------- | ------- | ------- |
-| `ALERT_MODIFIED_HOURS` | `24` | Only Slack-notify probe hits whose `Last-Modified` is within this many hours (see README). |
-| `HTTP_CONCURRENCY` | `20` | Max concurrent async HTTP requests for probing. |
-| `HTTP_TIMEOUT_SECONDS` | `10` | Per-request timeout. |
-| `HTTP_USE_HTTP2` | `true` | Use HTTP/2 where supported. |
+| Variable               | Default | Meaning                                                                                    |
+| ---------------------- | ------- | ------------------------------------------------------------------------------------------ |
+| `ALERT_MODIFIED_HOURS` | `24`    | Only Slack-notify probe hits whose `Last-Modified` is within this many hours (see README). |
+| `HTTP_CONCURRENCY`     | `20`    | Max concurrent async HTTP requests for probing.                                            |
+| `HTTP_TIMEOUT_SECONDS` | `10`    | Per-request timeout.                                                                       |
+| `HTTP_USE_HTTP2`       | `true`  | Use HTTP/2 where supported.                                                                |
 
 ### Notifications
 
-| Variable | Default | Meaning |
-| -------- | ------- | ------- |
-| `NOTIFICATION_CHANNEL` | empty | Slack channel ID for shared alerts (frontier, D→P, etc.); empty disables channel posts. |
-| `NOTIFY_ON_FRONTIER_HIT` | `true` | Notify on recent draft hits near the frontier. |
-| `NOTIFY_ON_ANY_DRAFT` | `true` | Notify on other recent draft hits. |
-| `NOTIFY_ON_DP_TRANSITION` | `true` | Notify when a tracked D URL’s paper appears as P in the index. |
+| Variable                  | Default | Meaning                                                                                 |
+| ------------------------- | ------- | --------------------------------------------------------------------------------------- |
+| `NOTIFICATION_CHANNEL`    | empty   | Slack channel ID for shared alerts (frontier, D→P, etc.); empty disables channel posts. |
+| `NOTIFY_ON_FRONTIER_HIT`  | `true`  | Notify on recent draft hits near the frontier.                                          |
+| `NOTIFY_ON_ANY_DRAFT`     | `true`  | Notify on other recent draft hits.                                                      |
+| `NOTIFY_ON_DP_TRANSITION` | `true`  | Notify when a tracked D URL’s paper appears as P in the index.                          |
 
 ### Storage and logging
 
-| Variable | Default | Meaning |
-| -------- | ------- | ------- |
-| `DATA_DIR` | `./data` | Log directory (and local file layout); created if missing. |
-| `CACHE_TTL_HOURS` | `1` | Staleness window for cached wg21 index blob in Postgres. |
-| `LOG_LEVEL` | `INFO` | Console/file log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
-| `LOG_RETENTION_DAYS` | `7` | Days of rotated log files to retain. |
+| Variable             | Default  | Meaning                                                       |
+| -------------------- | -------- | ------------------------------------------------------------- |
+| `DATA_DIR`           | `./data` | Log directory (and local file layout); created if missing.    |
+| `CACHE_TTL_HOURS`    | `1`      | Staleness window for cached wg21 index blob in Postgres.      |
+| `LOG_LEVEL`          | `INFO`   | Console/file log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `LOG_RETENTION_DAYS` | `7`      | Days of rotated log files to retain.                          |
 
-**Note:** `health_port` (default `8080`) exists in [Settings](../src/paperscout/config.py) but is not in `.env.example`; set `HEALTH_PORT` only if you add it to settings or extend `.env.example` in the future.
+**Note:** `health_port` (default `8080`) exists in [Settings](../src/paperscout/config.py) but is not listed in `.env.example`. You can still set `HEALTH_PORT` in `.env` if you need to override the default.
 
 ## Scheduling (asyncio loop)
 

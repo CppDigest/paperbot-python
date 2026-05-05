@@ -23,7 +23,7 @@ ISO probing uses **HTTP HEAD**, not GET, to detect existence and metadata withou
 
 When the wg21 index gains a **new P** row, the monitor checks whether a matching **D** URL was previously recorded in `discovered_urls`. If so, it emits a **D→P transition** for notification.
 
-**Why:** The index alone does not tell you that *we* saw the draft first; probe history is the bridge. Logic lives in [`monitor.py`](../src/paperscout/monitor.py) (`DPTransition` / `poll_once`).
+**Why:** The index alone does not tell you that _we_ saw the draft first; probe history is the bridge. Logic lives in [`monitor.py`](../src/paperscout/monitor.py) (`DPTransition` / `poll_once`).
 
 ### 4. Slack queue and HTTP 429
 
@@ -39,13 +39,13 @@ Outbound Slack messages go through a **background queue** (see [`scout.py`](../s
 
 ## Operational gotchas
 
-| Topic | What to know |
-| ----- | -------------- |
-| **isocpp.org** | Third-party availability and latency directly affect cycle time; long cycles increase sleep spacing via `POLL_OVERRUN_COOLDOWN_SECONDS` (see [onboarding — Scheduling](onboarding.md#scheduling-asyncio-loop)). |
-| **HEAD volume** | Typical **~1,600–2,000** HEAD requests per cycle at default settings (README architecture section). Tune `HTTP_CONCURRENCY` / windows if needed. |
-| **Slack 429** | Expected under burst; queue backs off using response headers — do not remove the queue “to simplify” without a replacement strategy. |
-| **Docker + Postgres** | Containers reach the host DB via `host.docker.internal`; Postgres must **listen** and **pg_hba** must allow the Docker bridge — [SERVER_SETUP.md](../deploy/SERVER_SETUP.md). |
-| **Logs vs DB** | Rotating files under `DATA_DIR`; durable probe/index/watchlist state in **PostgreSQL** only. |
+| Topic                 | What to know                                                                                                                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **isocpp.org**        | Third-party availability and latency directly affect cycle time; long cycles increase sleep spacing via `POLL_OVERRUN_COOLDOWN_SECONDS` (see [onboarding — Scheduling](onboarding.md#scheduling-asyncio-loop)). |
+| **HEAD volume**       | Typical **~1,600–2,000** HEAD requests per cycle at default settings (README architecture section). Tune `HTTP_CONCURRENCY` / windows if needed.                                                                |
+| **Slack 429**         | Expected under burst; queue backs off using response headers — do not remove the queue “to simplify” without a replacement strategy.                                                                            |
+| **Docker + Postgres** | Containers reach the host DB via `host.docker.internal`; Postgres must **listen** and **pg_hba** must allow the Docker bridge — [SERVER_SETUP.md](../deploy/SERVER_SETUP.md).                                   |
+| **Logs vs DB**        | Rotating files under `DATA_DIR`; durable probe/index/watchlist state in **PostgreSQL** only.                                                                                                                    |
 
 ## Open TODOs and deferred items
 
@@ -54,11 +54,11 @@ Outbound Slack messages go through a **background queue** (see [`scout.py`](../s
 
 ## Credentials and contacts
 
-| Secret / asset | Who to ask |
-| -------------- | ---------- |
-| **Slack app** (signing secret, bot token, app-level tokens if any) | Whoever administers the Slack workspace / app registration for this deployment (replace with a named role or mailing list). |
-| **PostgreSQL** (production DSN, backup restore) | Infrastructure / DBA for the host that runs `DATABASE_URL` (see [SERVER_SETUP.md](../deploy/SERVER_SETUP.md), [db-backup workflow](../.github/workflows/db-backup.yml)). |
-| **GitHub Environments** (SSH deploy, GCS backup credentials) | Documented in README **Deployment** and SERVER_SETUP **§9 GitHub secrets checklist**. |
+| Secret / asset                                                     | Who to ask                                                                                |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| **Slack app** (signing secret, bot token, app-level tokens if any) | `#paperscout-ops` (primary) / `ops-oncall@...` (backup), owned by <team-or-role>.         |
+| **PostgreSQL** (production DSN, backup restore)                    | `dba-oncall@...` / `#db-operations`, owned by <team-or-role> for the `DATABASE_URL` host. |
+| **GitHub Environments** (SSH deploy, GCS backup credentials)       | Documented in README **Deployment** and SERVER_SETUP **§9 GitHub secrets checklist**.     |
 
 Replace generic phrases above with **CppAlliance**-specific contacts (Slack channel, email list, or on-call) as soon as they are approved for a public or internal wiki.
 
