@@ -265,7 +265,7 @@ class ProbeState:
 
 
 class UserWatchlist:
-    """Slack users’ watchlists: author substring or numeric paper id per row."""
+    """Slack users' watchlists: author substring or numeric paper id per row."""
 
     def __init__(self, pool: ThreadedConnectionPool):
         self._pool = pool

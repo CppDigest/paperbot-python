@@ -359,7 +359,13 @@ def register_handlers(
             if bot_id and f"<@{bot_id}>" in text:
                 text = text.split(f"<@{bot_id}>", 1)[-1].strip()
                 if text:
-                    _dispatch(text, user_id, channel_type, say=say, reply_opts=_reply_opts(event))
+                    _dispatch(
+                        text,
+                        user_id,
+                        channel_type,
+                        say=say,
+                        reply_opts=_reply_opts(event),
+                    )
 
         else:
             # Public/private channels: handled by app_mention; skip plain messages
@@ -416,7 +422,7 @@ def _show_watchlist(
     say,
     reply_opts: dict,
 ) -> None:
-    """Post the user’s watchlist entries or an empty-state hint."""
+    """Post the user's watchlist entries or an empty-state hint."""
     entries = user_watchlist.list_entries(user_id)
     if entries:
         lines = [f"• {entry} ({etype})" for entry, etype in entries]
