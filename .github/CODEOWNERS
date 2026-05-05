@@ -1,0 +1,6 @@
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Uncomment and set one or more GitHub usernames or @org/team-name entries.
+# Teams must exist in the org and have visibility to this repository.
+#
+* @wpak-ai

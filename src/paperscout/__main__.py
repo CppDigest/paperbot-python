@@ -1,4 +1,5 @@
 """Entry point: python -m paperscout"""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,23 +7,21 @@ import logging
 import logging.handlers
 import sys
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
-from datetime import datetime, timezone
-
 from .config import settings
-from .scout import MessageQueue, create_app, notify_channel, notify_users, register_handlers
 from .db import init_db, init_pool
 from .health import start_health_server
 from .monitor import Scheduler
+from .scout import MessageQueue, create_app, notify_channel, notify_users, register_handlers
 from .sources import ISOProber, WG21Index
 from .storage import ProbeState, UserWatchlist
 
 log = logging.getLogger("paperscout")
 
 
-def _setup_logging(data_dir: Path, console_level: str = "INFO",
-                   retention_days: int = 7) -> None:
+def _setup_logging(data_dir: Path, console_level: str = "INFO", retention_days: int = 7) -> None:
     """Configure root logger with:
 
     • Console (stderr) — at *console_level*, for interactive monitoring.
@@ -57,8 +56,7 @@ def _setup_logging(data_dir: Path, console_level: str = "INFO",
     root.addHandler(fh)
     root.addHandler(ch)
 
-    for lib in ("httpx", "httpcore", "slack_bolt", "slack_sdk",
-                "urllib3", "psycopg2"):
+    for lib in ("httpx", "httpcore", "slack_bolt", "slack_sdk", "urllib3", "psycopg2"):
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
@@ -74,15 +72,20 @@ async def _async_main() -> None:
 
     log.info(
         "=== Paperscout starting  port=%d  poll=%dmin  data=%s  log=%s ===",
-        settings.port, settings.poll_interval_minutes,
-        data_dir, data_dir / "paperscout.log",
+        settings.port,
+        settings.poll_interval_minutes,
+        data_dir,
+        data_dir / "paperscout.log",
     )
     log.info(
         "Settings: hot_lookback=%dmo  hot_depth=%d  cold_divisor=%d  "
         "alert_hours=%d  gap_max_rev=%d  frontier_gap=%d",
-        settings.hot_lookback_months, settings.hot_revision_depth,
-        settings.cold_cycle_divisor, settings.alert_modified_hours,
-        settings.gap_max_rev, settings.frontier_gap_threshold,
+        settings.hot_lookback_months,
+        settings.hot_revision_depth,
+        settings.cold_cycle_divisor,
+        settings.alert_modified_hours,
+        settings.gap_max_rev,
+        settings.frontier_gap_threshold,
     )
 
     if not settings.database_url:
@@ -102,7 +105,8 @@ async def _async_main() -> None:
     mq = MessageQueue(app)
     mq.start()
 
-    paper_count_fn = lambda: len(index.papers)
+    def paper_count_fn() -> int:
+        return len(index.papers)
 
     def _on_poll_result(result):
         notify_channel(app, result, mq)
@@ -121,7 +125,9 @@ async def _async_main() -> None:
     start_health_server(settings.health_port, launch_time, state, paper_count_fn)
     log.info("Starting Slack Bolt app on port %d", settings.port)
     bolt_thread = threading.Thread(
-        target=app.start, kwargs={"port": settings.port}, daemon=True,
+        target=app.start,
+        kwargs={"port": settings.port},
+        daemon=True,
     )
     bolt_thread.start()
 

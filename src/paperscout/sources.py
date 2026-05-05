@@ -4,11 +4,12 @@ import asyncio
 import logging
 import re
 import time
-from enum import Enum
-from typing import Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from enum import Enum
+
 import httpx
 
 from .config import Settings, settings
@@ -31,9 +32,9 @@ class WG21Index:
     def __init__(self, pool):
         self._cache = PaperCache(pool, ttl_hours=settings.cache_ttl_hours)
         self.papers: dict[str, Paper] = {}
-        self._max_rev: dict[int, int] = {}   # P-number -> highest revision
-        self._max_p: int = 0                  # absolute highest P-number
-        self._sorted_p_nums: list[int] = []   # sorted unique P-numbers, for gap analysis
+        self._max_rev: dict[int, int] = {}  # P-number -> highest revision
+        self._max_p: int = 0  # absolute highest P-number
+        self._sorted_p_nums: list[int] = []  # sorted unique P-numbers, for gap analysis
 
     async def refresh(self) -> dict[str, Paper]:
         cached = self._cache.read_if_fresh()
@@ -255,12 +256,12 @@ class ISOProber:
     # Keys that _stats is reset to at the start of every run_cycle().
     _STATS_TEMPLATE: dict[str, int] = {
         "skipped_discovered": 0,  # URL already in probe_state
-        "skipped_in_index":   0,  # paper_id already in wg21.link index
-        "miss":               0,  # server returned non-200
-        "hit_recent":         0,  # 200 + Last-Modified within alert window
-        "hit_old":            0,  # 200 + Last-Modified outside alert window
-        "hit_no_lm":          0,  # 200 + no Last-Modified header (treated as recent)
-        "error":              0,  # httpx / network exception
+        "skipped_in_index": 0,  # paper_id already in wg21.link index
+        "miss": 0,  # server returned non-200
+        "hit_recent": 0,  # 200 + Last-Modified within alert window
+        "hit_old": 0,  # 200 + Last-Modified outside alert window
+        "hit_no_lm": 0,  # 200 + no Last-Modified header (treated as recent)
+        "error": 0,  # httpx / network exception
     }
 
     def __init__(
@@ -285,15 +286,17 @@ class ISOProber:
         t0 = time.monotonic()
 
         urls = self._build_probe_list()
-        hot_count = sum(
-            1 for u in urls if u[1] in (Tier.WATCHLIST, Tier.FRONTIER, Tier.RECENT)
-        )
+        hot_count = sum(1 for u in urls if u[1] in (Tier.WATCHLIST, Tier.FRONTIER, Tier.RECENT))
         cold_count = sum(1 for u in urls if u[1] == Tier.COLD)
         slice_idx = (self._cycle - 1) % self.cfg.cold_cycle_divisor
         log.info(
             "PROBE-START  cycle=%d  total=%d  hot=%d  cold=%d  slice=%d/%d",
-            self._cycle, len(urls), hot_count, cold_count,
-            slice_idx, self.cfg.cold_cycle_divisor,
+            self._cycle,
+            len(urls),
+            hot_count,
+            cold_count,
+            slice_idx,
+            self.cfg.cold_cycle_divisor,
         )
 
         sem = asyncio.Semaphore(self.cfg.http_concurrency)
@@ -329,9 +332,17 @@ class ISOProber:
             "PROBE-DONE  cycle=%d  elapsed=%.1fs  total=%d  "
             "hit=%d(recent=%d old=%d no-lm=%d)  miss=%d  "
             "skip-disc=%d  skip-idx=%d  err=%d",
-            self._cycle, elapsed, len(urls),
-            hit_total, s["hit_recent"], s["hit_old"], s["hit_no_lm"],
-            s["miss"], s["skipped_discovered"], s["skipped_in_index"], s["error"],
+            self._cycle,
+            elapsed,
+            len(urls),
+            hit_total,
+            s["hit_recent"],
+            s["hit_old"],
+            s["hit_no_lm"],
+            s["miss"],
+            s["skipped_discovered"],
+            s["skipped_in_index"],
+            s["error"],
         )
         return hits
 
@@ -343,9 +354,8 @@ class ISOProber:
             extra_p_numbers=self.state.paper_nums_from_discovered_iso_urls(),
         )
         hot_known, hot_unknown = self._hot_numbers(frontier)
-        return (
-            self._build_hot_list(frontier, hot_known, hot_unknown)
-            + self._build_cold_slice(self._cycle, frontier, hot_known, hot_unknown)
+        return self._build_hot_list(frontier, hot_known, hot_unknown) + self._build_cold_slice(
+            self._cycle, frontier, hot_known, hot_unknown
         )
 
     def _hot_numbers(self, frontier: int) -> tuple[set[int], set[int]]:
@@ -364,9 +374,7 @@ class ISOProber:
 
         # Recently active papers
         if self.cfg.hot_lookback_months > 0:
-            cutoff = date.today() - timedelta(
-                days=int(self.cfg.hot_lookback_months * 30.44)
-            )
+            cutoff = date.today() - timedelta(days=int(self.cfg.hot_lookback_months * 30.44))
             for p in self.index.papers.values():
                 if p.prefix != "P" or p.number is None or not p.date or p.date == "unknown":
                     continue
@@ -491,7 +499,7 @@ class ISOProber:
                     break
                 except httpx.HTTPError as exc:
                     if _attempt < _max_retries - 1:
-                        await asyncio.sleep(0.5 * (2 ** _attempt))
+                        await asyncio.sleep(0.5 * (2**_attempt))
                         continue
                     log.debug("ERR   %s  %s (after %d attempts)", url, exc, _max_retries)
                     self._stats["error"] += 1
@@ -512,9 +520,7 @@ class ISOProber:
                 try:
                     last_modified = parsedate_to_datetime(lm_str)
                     threshold = timedelta(hours=self.cfg.alert_modified_hours)
-                    is_recent = (
-                        datetime.now(timezone.utc) - last_modified
-                    ) <= threshold
+                    is_recent = (datetime.now(timezone.utc) - last_modified) <= threshold
                 except Exception:
                     pass
             else:
@@ -522,13 +528,13 @@ class ISOProber:
                 # file; treat as recent so we don't silently drop it.
                 is_recent = True
 
-            lm_display = (
-                last_modified.strftime("%Y-%m-%d %H:%M UTC")
-                if last_modified else "no-lm"
-            )
+            lm_display = last_modified.strftime("%Y-%m-%d %H:%M UTC") if last_modified else "no-lm"
             log.info(
                 "HIT  tier=%-10s  recent=%-5s  lm=%-20s  %s",
-                tier, is_recent, lm_display, url,
+                tier,
+                is_recent,
+                lm_display,
+                url,
             )
 
             if is_recent and last_modified is not None:
@@ -544,8 +550,12 @@ class ISOProber:
                 front_text = await _fetch_front_text(client, prefix, num, rev)
 
             return ProbeHit(
-                url=url, prefix=prefix, number=num,
-                revision=rev, extension=ext, tier=tier,
+                url=url,
+                prefix=prefix,
+                number=num,
+                revision=rev,
+                extension=ext,
+                tier=tier,
                 front_text=front_text,
                 last_modified=last_modified,
                 is_recent=is_recent,
@@ -578,7 +588,8 @@ async def scrape_open_std(year: int | None = None) -> list[OpenStdEntry]:
     url = OPEN_STD_URL.format(year=year)
     try:
         async with httpx.AsyncClient(
-            http2=settings.http_use_http2, timeout=30.0,
+            http2=settings.http_use_http2,
+            timeout=30.0,
         ) as client:
             resp = await client.get(url)
             resp.raise_for_status()
@@ -603,8 +614,13 @@ def _parse_open_std_html(html: str) -> list[OpenStdEntry]:
         author = re.sub(r"<[^>]+>", "", cells[2]).strip()
         doc_date = re.sub(r"<[^>]+>", "", cells[3]).strip()
         subgroup = re.sub(r"<[^>]+>", "", cells[6]).strip() if len(cells) > 6 else ""
-        entries.append(OpenStdEntry(
-            paper_id=paper_id, title=title, author=author,
-            doc_date=doc_date, subgroup=subgroup,
-        ))
+        entries.append(
+            OpenStdEntry(
+                paper_id=paper_id,
+                title=title,
+                author=author,
+                doc_date=doc_date,
+                subgroup=subgroup,
+            )
+        )
     return entries

@@ -1,15 +1,19 @@
 """PostgreSQL-backed storage: PaperCache, ProbeState, UserWatchlist."""
+
 from __future__ import annotations
 
 import json
 import logging
 import re
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from psycopg2.pool import ThreadedConnectionPool
+
+    from .monitor import PerUserMatches
 
 log = logging.getLogger(__name__)
 
@@ -28,8 +32,9 @@ def iso_paper_number_from_discovered_url(url: str) -> int | None:
 
 # ── Connection helper ────────────────────────────────────────────────────────
 
+
 @contextmanager
-def _conn(pool: "ThreadedConnectionPool") -> Generator:
+def _conn(pool: ThreadedConnectionPool) -> Generator:
     conn = pool.getconn()
     try:
         yield conn
@@ -54,7 +59,7 @@ class PaperCache:
     changes.
     """
 
-    def __init__(self, pool: "ThreadedConnectionPool", ttl_hours: float = 1.0):
+    def __init__(self, pool: ThreadedConnectionPool, ttl_hours: float = 1.0):
         self._pool = pool
         self.ttl_seconds = ttl_hours * 3600
 
@@ -113,13 +118,14 @@ class PaperCache:
 
 # ── Probe State ──────────────────────────────────────────────────────────────
 
+
 class ProbeState:
     """PostgreSQL-backed probe state: discovered URLs, miss counters, last-poll.
 
     All existing methods are preserved with identical signatures.
     """
 
-    def __init__(self, pool: "ThreadedConnectionPool"):
+    def __init__(self, pool: ThreadedConnectionPool):
         self._pool = pool
         self._ensure_poll_row()
 
@@ -143,10 +149,7 @@ class ProbeState:
             with conn.cursor() as cur:
                 cur.execute("SELECT url, last_modified, discovered_at FROM discovered_urls")
                 rows = cur.fetchall()
-        return {
-            url: {"last_modified": lm, "discovered_at": da}
-            for url, lm, da in rows
-        }
+        return {url: {"last_modified": lm, "discovered_at": da} for url, lm, da in rows}
 
     def mark_discovered(self, url: str, last_modified_ts: float | None = None) -> None:
         with _conn(self._pool) as conn:
@@ -271,6 +274,7 @@ class ProbeState:
 
 # ── User Watchlist ───────────────────────────────────────────────────────────
 
+
 class UserWatchlist:
     """Per-user watchlist stored in the ``user_watchlist`` table.
 
@@ -279,7 +283,7 @@ class UserWatchlist:
     auto-detected: pure digit strings → paper, anything else → author.
     """
 
-    def __init__(self, pool: "ThreadedConnectionPool"):
+    def __init__(self, pool: ThreadedConnectionPool):
         self._pool = pool
 
     @staticmethod
@@ -330,9 +334,7 @@ class UserWatchlist:
         """Return the union of all watched paper numbers across all users."""
         with _conn(self._pool) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT entry FROM user_watchlist WHERE entry_type = 'paper'"
-                )
+                cur.execute("SELECT entry FROM user_watchlist WHERE entry_type = 'paper'")
                 rows = cur.fetchall()
         result: set[int] = set()
         for (entry,) in rows:
@@ -346,16 +348,14 @@ class UserWatchlist:
         """Return all rows as ``[(slack_user_id, entry, entry_type)]``."""
         with _conn(self._pool) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT slack_user_id, entry, entry_type FROM user_watchlist"
-                )
+                cur.execute("SELECT slack_user_id, entry, entry_type FROM user_watchlist")
                 return [(row[0], row[1], row[2]) for row in cur.fetchall()]
 
     def matches_for_users(
         self,
-        new_papers: list,      # list[Paper]
-        probe_hits: list,      # list[ProbeHit]
-    ) -> dict[str, "PerUserMatches"]:
+        new_papers: list,  # list[Paper]
+        probe_hits: list,  # list[ProbeHit]
+    ) -> dict[str, PerUserMatches]:
         """Compute per-user matched papers and probe hits.
 
         Returns a dict keyed by ``slack_user_id``.  Only users with at least

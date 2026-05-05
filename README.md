@@ -7,6 +7,10 @@ WG21 C++ paper tracker with ISO draft probing and Slack notifications.
 
 A Python project that probes the isocpp.org paper system for unpublished D-paper drafts, monitors for new paper assignments at the frontier, and notifies a Slack channel when watched authors publish.
 
+**Docs:** [Developer onboarding](docs/onboarding.md) (clone → DB → tests → run) · [Maintainer handoff](docs/handoff.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md)
+
+If you only need to run tests or a local instance, start with **onboarding** before the Slack app sections below.
+
 ## Features
 
 - **Per-user watchlists** -- each user manages their own list of authors and paper numbers via DM; the scout sends a personal DM when a match is found
@@ -226,6 +230,7 @@ All parameters are configurable via environment variables or a `.env` file. See 
 | Variable                | Default | Description                                            |
 | ----------------------- | ------- | ------------------------------------------------------ |
 | `POLL_INTERVAL_MINUTES` | `30`    | Main polling cycle interval                            |
+| `POLL_OVERRUN_COOLDOWN_SECONDS` | `300` | Minimum sleep after a poll cycle that overran the interval (avoids tight loops when work or errors stretch a cycle) |
 | `ENABLE_BULK_WG21`      | `true`  | Fetch wg21.link/index.json each cycle                  |
 | `ENABLE_BULK_OPENSTD`   | `true`  | Reserved for open-std.org scraping (not yet scheduled) |
 | `ENABLE_ISO_PROBE`      | `true`  | Run isocpp.org HEAD probing each cycle                 |

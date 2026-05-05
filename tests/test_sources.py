@@ -1,4 +1,5 @@
 """Tests for paperscout.sources."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,8 +13,6 @@ import pytest
 from paperscout.models import Paper
 from paperscout.sources import (
     ISOProber,
-    OpenStdEntry,
-    ProbeHit,
     WG21Index,
     _fetch_front_text,
     _fetch_pdf_text,
@@ -33,8 +32,10 @@ def _mock_wl(paper_nums=None):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _make_response(status: int = 200, json_data=None, text: str = "",
-                   last_modified: datetime | None = None) -> MagicMock:
+
+def _make_response(
+    status: int = 200, json_data=None, text: str = "", last_modified: datetime | None = None
+) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status
     resp.json = MagicMock(return_value=json_data or {})
@@ -57,7 +58,7 @@ def _make_stream_cm(status: int = 404, chunks: list[bytes] | None = None) -> Asy
     resp.status_code = status
 
     async def _aiter_bytes(chunk_size=65536):
-        for chunk in (chunks or []):
+        for chunk in chunks or []:
             yield chunk
 
     resp.aiter_bytes = _aiter_bytes
@@ -84,6 +85,7 @@ def _old_lm() -> datetime:
 
 
 # ── WG21Index ────────────────────────────────────────────────────────────────
+
 
 class TestWG21Index:
     async def test_refresh_downloads_when_no_cache(self, fake_pool):
@@ -228,6 +230,7 @@ class TestWG21Index:
 
 # ── _fetch_front_text ─────────────────────────────────────────────────────────
 
+
 class TestFetchFrontText:
     async def test_returns_plain_text_on_success(self):
         html = "<html><body><p>Author: Eric Niebler</p></body></html>"
@@ -258,6 +261,7 @@ class TestFetchFrontText:
 
 # ── _fetch_pdf_text ───────────────────────────────────────────────────────────
 
+
 class TestFetchPdfText:
     async def test_returns_empty_on_non_200(self):
         client = _make_async_client(stream_cm=_make_stream_cm(404))
@@ -266,6 +270,7 @@ class TestFetchPdfText:
 
     async def test_returns_empty_when_fitz_missing(self):
         import sys
+
         client = _make_async_client(stream_cm=_make_stream_cm(200, chunks=[b"%PDF-fake"]))
         with patch.dict(sys.modules, {"fitz": None}):
             result = await _fetch_pdf_text(client, "https://example.com/test.pdf")
@@ -280,6 +285,7 @@ class TestFetchPdfText:
     async def test_respects_byte_cap(self):
         """stream() should be cut off after _PDF_MAX_BYTES; no crash."""
         from paperscout.sources import _PDF_MAX_BYTES
+
         big_chunk = b"x" * (_PDF_MAX_BYTES + 1)
         # Even though the chunk exceeds the cap, _fetch_pdf_text must not raise.
         # Passing invalid PDF bytes → fitz raises → caught → returns "".
@@ -337,8 +343,11 @@ class TestFetchPdfTextIntegration:
 
 # ── ISOProber: hot/cold list builders ────────────────────────────────────────
 
+
 class TestISOProberLists:
-    def _make_prober(self, fake_pool, watchlist_nums=None, **cfg_overrides) -> tuple[ISOProber, WG21Index, ProbeState]:
+    def _make_prober(
+        self, fake_pool, watchlist_nums=None, **cfg_overrides
+    ) -> tuple[ISOProber, WG21Index, ProbeState]:
         index = WG21Index(fake_pool)
         state = ProbeState(fake_pool)
         cfg = make_test_settings(**cfg_overrides)
@@ -437,9 +446,11 @@ class TestISOProberLists:
         recent_date = (date.today() - timedelta(days=30)).isoformat()
         # _parse_and_index updates _max_rev/_sorted_p_nums but not self.papers;
         # assign both so that the date-based hot filter can find the paper.
-        index.papers = index._parse_and_index({
-            "P5000R2": {"title": "T", "date": recent_date, "type": "paper"},
-        })
+        index.papers = index._parse_and_index(
+            {
+                "P5000R2": {"title": "T", "date": recent_date, "type": "paper"},
+            }
+        )
         frontier = index.effective_frontier()
         hot_known, _ = prober._hot_numbers(frontier)
         assert 5000 in hot_known
@@ -452,9 +463,11 @@ class TestISOProberLists:
             frontier_window_below=0,
         )
         old_date = (date.today() - timedelta(days=365)).isoformat()
-        index._parse_and_index({
-            "P5000R2": {"title": "T", "date": old_date, "type": "paper"},
-        })
+        index._parse_and_index(
+            {
+                "P5000R2": {"title": "T", "date": old_date, "type": "paper"},
+            }
+        )
         frontier = index.effective_frontier()
         hot_known, _ = prober._hot_numbers(frontier)
         assert 5000 not in hot_known
@@ -555,8 +568,9 @@ class TestISOProberLists:
         assert 200 in hot_unknown or 200 in hot_known
 
     def test_hot_paper_skipped_when_no_date(self, fake_pool):
-        prober, index, _ = self._make_prober(fake_pool, hot_lookback_months=6,
-                                              frontier_window_above=0, frontier_window_below=0)
+        prober, index, _ = self._make_prober(
+            fake_pool, hot_lookback_months=6, frontier_window_above=0, frontier_window_below=0
+        )
         # Paper with no date should be silently skipped (the `continue` branch)
         index.papers = index._parse_and_index({"P6000R0": {"title": "T", "type": "paper"}})
         frontier = index.effective_frontier()
@@ -564,8 +578,9 @@ class TestISOProberLists:
         assert 6000 not in hot_known
 
     def test_hot_paper_skipped_when_bad_date(self, fake_pool):
-        prober, index, _ = self._make_prober(fake_pool, hot_lookback_months=6,
-                                              frontier_window_above=0, frontier_window_below=0)
+        prober, index, _ = self._make_prober(
+            fake_pool, hot_lookback_months=6, frontier_window_above=0, frontier_window_below=0
+        )
         index.papers = index._parse_and_index(
             {"P6001R0": {"title": "T", "date": "not-a-date", "type": "paper"}}
         )
@@ -575,8 +590,11 @@ class TestISOProberLists:
 
     def test_tier_label_recent_for_non_watchlist_non_frontier(self, fake_pool):
         prober, index, _ = self._make_prober(
-            fake_pool, watchlist_nums=[1], hot_lookback_months=0,
-            frontier_window_above=0, frontier_window_below=0,
+            fake_pool,
+            watchlist_nums=[1],
+            hot_lookback_months=0,
+            frontier_window_above=0,
+            frontier_window_below=0,
         )
         self._set_frontier(index, 100)
         # Number 50 is not watchlist and not in frontier range → "recent"
@@ -605,9 +623,13 @@ class TestISOProberLists:
     def test_build_hot_list_latest_none_uses_minus_one(self, fake_pool):
         """Known hot numbers with latest_revision=None should start from R0."""
         prober, index, _ = self._make_prober(
-            fake_pool, watchlist_nums=[9999], hot_lookback_months=0,
-            frontier_window_above=0, frontier_window_below=0,
-            hot_revision_depth=1, gap_max_rev=0,
+            fake_pool,
+            watchlist_nums=[9999],
+            hot_lookback_months=0,
+            frontier_window_above=0,
+            frontier_window_below=0,
+            hot_revision_depth=1,
+            gap_max_rev=0,
         )
         # Add 9999 to _max_rev so it's "known" but with latest_revision=None
         index._max_rev = {9999: -1, 99: 0, 100: 0}
@@ -622,9 +644,12 @@ class TestISOProberLists:
     def test_cold_known_skips_when_latest_none(self, fake_pool):
         """cold_known paper with latest_revision=None should be silently skipped."""
         prober, index, _ = self._make_prober(
-            fake_pool, hot_lookback_months=0,
-            frontier_window_above=0, frontier_window_below=0,  # empty frontier range
-            cold_cycle_divisor=1, cold_revision_depth=1,
+            fake_pool,
+            hot_lookback_months=0,
+            frontier_window_above=0,
+            frontier_window_below=0,  # empty frontier range
+            cold_cycle_divisor=1,
+            cold_revision_depth=1,
         )
         # 4 has _max_rev=-1 → latest_revision=None; 5 is normal
         # With no frontier window and no watchlist, both are cold_known
@@ -635,7 +660,7 @@ class TestISOProberLists:
         urls = prober._build_cold_slice(1, frontier, hot_known, hot_unknown)
         cold_nums = {r[3] for r in urls if r[1] == "cold"}
         assert 4 not in cold_nums  # skipped because latest_revision=None
-        assert 5 in cold_nums      # normally probed
+        assert 5 in cold_nums  # normally probed
 
     async def test_probe_one_bad_last_modified_header(self, fake_pool):
         """An unparsable Last-Modified header should not crash; is_recent stays False."""
@@ -662,10 +687,12 @@ class TestISOProberLists:
             frontier_window_above=0,
             frontier_window_below=0,
         )
-        index._parse_and_index({
-            "P5000R2": {"title": "T", "date": "2020-01-01", "type": "paper"},
-            "P5001R0": {"title": "T", "date": "2020-01-01", "type": "paper"},
-        })
+        index._parse_and_index(
+            {
+                "P5000R2": {"title": "T", "date": "2020-01-01", "type": "paper"},
+                "P5001R0": {"title": "T", "date": "2020-01-01", "type": "paper"},
+            }
+        )
         frontier = index.effective_frontier()
         hot_known, hot_unknown = prober._hot_numbers(frontier)
         urls = prober._build_cold_slice(1, frontier, hot_known, hot_unknown)
@@ -674,6 +701,7 @@ class TestISOProberLists:
 
 
 # ── ISOProber: _probe_one ─────────────────────────────────────────────────────
+
 
 class TestISOProberProbeOne:
     def _make_prober(self, fake_pool) -> tuple[ISOProber, WG21Index, ProbeState]:
@@ -824,6 +852,7 @@ class TestISOProberProbeOne:
     async def test_run_cycle_logs_unhandled_exception(self, fake_pool, caplog):
         """If asyncio.gather returns an Exception (not ProbeHit), it is logged."""
         import logging
+
         index = WG21Index(fake_pool)
         index._max_p = 100
         index._max_rev = {99: 0, 100: 0}
@@ -831,9 +860,12 @@ class TestISOProberProbeOne:
         state = ProbeState(fake_pool)
         cfg = make_test_settings(
             watchlist_papers=[9999],
-            hot_lookback_months=0, hot_revision_depth=1,
-            frontier_window_above=0, frontier_window_below=0,
-            gap_max_rev=0, cold_cycle_divisor=100,
+            hot_lookback_months=0,
+            hot_revision_depth=1,
+            frontier_window_above=0,
+            frontier_window_below=0,
+            gap_max_rev=0,
+            cold_cycle_divisor=100,
         )
         prober = ISOProber(index, state, user_watchlist=_mock_wl([9999]), cfg=cfg)
 
@@ -881,6 +913,7 @@ class TestISOProberProbeOne:
 
 
 # ── ISOProber: run_cycle ──────────────────────────────────────────────────────
+
 
 class TestISOProberRunCycle:
     async def test_run_cycle_records_hit_and_marks_discovered(self, fake_pool):

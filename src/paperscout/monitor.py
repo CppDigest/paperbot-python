@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 # ── Diff Engine ──────────────────────────────────────────────────────────────
 
+
 @dataclass(slots=True)
 class DiffResult:
     new_papers: list[Paper]
@@ -35,8 +36,12 @@ def diff_snapshots(
             new_papers.append(paper)
         else:
             old = previous[key]
-            if (old.title != paper.title or old.author != paper.author
-                    or old.date != paper.date or old.long_link != paper.long_link):
+            if (
+                old.title != paper.title
+                or old.author != paper.author
+                or old.date != paper.date
+                or old.long_link != paper.long_link
+            ):
                 updated_papers.append(paper)
 
     new_papers.sort(key=lambda p: p.date or "", reverse=True)
@@ -45,6 +50,7 @@ def diff_snapshots(
 
 # ── Per-User Matches ─────────────────────────────────────────────────────────
 
+
 @dataclass
 class PerUserMatches:
     """Watchlist matches for a single Slack user in one poll cycle.
@@ -52,11 +58,13 @@ class PerUserMatches:
     Each entry in *papers* and *probe_hits* is a ``(item, match_reason)``
     tuple where ``match_reason`` is ``'author'`` or ``'paper'``.
     """
+
     papers: list[tuple[Paper, str]] = field(default_factory=list)
     probe_hits: list[tuple[ProbeHit, str]] = field(default_factory=list)
 
 
 # ── Poll Result ──────────────────────────────────────────────────────────────
+
 
 @dataclass(slots=True)
 class DPTransition:
@@ -67,6 +75,7 @@ class DPTransition:
     *last_modified -- server Last-Modified of the draft (Unix timestamp), or None
     *discovered_at* -- our wall-clock time when we first found the draft
     """
+
     paper: Paper
     draft_url: str
     last_modified: float | None
@@ -88,6 +97,7 @@ class PollResult:
 
 
 # ── Scheduler ────────────────────────────────────────────────────────────────
+
 
 class Scheduler:
     """Coordinates periodic polling: index refresh + ISO probing + notifications."""
@@ -160,13 +170,17 @@ class Scheduler:
         for paper in diff.new_papers:
             log.info(
                 "INDEX-NEW  id=%-14s  author=%-20s  date=%s  title=%r",
-                paper.id, paper.author or "?", paper.date or "?",
+                paper.id,
+                paper.author or "?",
+                paper.date or "?",
                 (paper.title or "")[:80],
             )
         for paper in diff.updated_papers:
             log.debug(
                 "INDEX-UPD  id=%-14s  author=%-20s  date=%s",
-                paper.id, paper.author or "?", paper.date or "?",
+                paper.id,
+                paper.author or "?",
+                paper.date or "?",
             )
 
         probe_hits: list[ProbeHit] = []
@@ -174,13 +188,14 @@ class Scheduler:
             probe_hits = await self.prober.run_cycle()
 
         recent_hits = [h for h in probe_hits if h.is_recent]
-        old_hits    = [h for h in probe_hits if not h.is_recent]
+        old_hits = [h for h in probe_hits if not h.is_recent]
 
         if old_hits:
             log.info(
                 "PROBE-OLD  %d hits with Last-Modified outside %dh window "
                 "(recorded to discovered, no alert)",
-                len(old_hits), self.cfg.alert_modified_hours,
+                len(old_hits),
+                self.cfg.alert_modified_hours,
             )
 
         # D→P transitions
@@ -189,28 +204,29 @@ class Scheduler:
             if paper.number is None or paper.revision is None or paper.prefix != "P":
                 continue
             for ext in self.cfg.probe_extensions:
-                d_url = (
-                    f"https://isocpp.org/files/papers/"
-                    f"D{paper.number:04d}R{paper.revision}{ext}"
-                )
+                d_url = f"https://isocpp.org/files/papers/D{paper.number:04d}R{paper.revision}{ext}"
                 info = self.state.discovered_info(d_url)
                 if info is not None:
-                    dp_transitions.append(DPTransition(
-                        paper=paper,
-                        draft_url=d_url,
-                        last_modified=info.get("last_modified"),
-                        discovered_at=info.get("discovered_at", 0.0),
-                    ))
+                    dp_transitions.append(
+                        DPTransition(
+                            paper=paper,
+                            draft_url=d_url,
+                            last_modified=info.get("last_modified"),
+                            discovered_at=info.get("discovered_at", 0.0),
+                        )
+                    )
                     lm_ts = info.get("last_modified")
                     disc_ts = info.get("discovered_at", 0.0)
                     log.info(
-                        "D-TO-P  id=%s  draft=%s  "
-                        "draft-lm=%s  draft-discovered=%s",
-                        paper.id, d_url,
+                        "D-TO-P  id=%s  draft=%s  draft-lm=%s  draft-discovered=%s",
+                        paper.id,
+                        d_url,
                         datetime.fromtimestamp(lm_ts, tz=timezone.utc).strftime("%Y-%m-%d")
-                        if lm_ts else "unknown",
+                        if lm_ts
+                        else "unknown",
                         datetime.fromtimestamp(disc_ts, tz=timezone.utc).strftime("%Y-%m-%d")
-                        if disc_ts else "unknown",
+                        if disc_ts
+                        else "unknown",
                     )
                     break
 
@@ -224,7 +240,9 @@ class Scheduler:
         for uid, m in per_user_matches.items():
             log.info(
                 "WATCHLIST-MATCH  user=%s  papers=%d  probe_hits=%d",
-                uid, len(m.papers), len(m.probe_hits),
+                uid,
+                len(m.papers),
+                len(m.probe_hits),
             )
 
         result = PollResult(
@@ -242,21 +260,26 @@ class Scheduler:
             "index-new=%d  index-upd=%d  "
             "probe-recent=%d  probe-old=%d  "
             "dp-transitions=%d  users-notified=%d",
-            self._poll_count, elapsed,
-            len(diff.new_papers), len(diff.updated_papers),
-            len(recent_hits), len(old_hits),
-            len(dp_transitions), len(per_user_matches),
+            self._poll_count,
+            elapsed,
+            len(diff.new_papers),
+            len(diff.updated_papers),
+            len(recent_hits),
+            len(old_hits),
+            len(dp_transitions),
+            len(per_user_matches),
         )
         return result
 
     async def run_forever(self) -> None:
-        interval  = self.cfg.poll_interval_minutes * 60
-        cooldown  = self.cfg.poll_overrun_cooldown_seconds
+        interval = self.cfg.poll_interval_minutes * 60
+        cooldown = self.cfg.poll_overrun_cooldown_seconds
         log.info(
-            "SCHEDULER-START  interval=%dmin  overrun_cooldown=%ds  "
-            "iso_probe=%s  wg21=%s",
-            self.cfg.poll_interval_minutes, cooldown,
-            self.cfg.enable_iso_probe, self.cfg.enable_bulk_wg21,
+            "SCHEDULER-START  interval=%dmin  overrun_cooldown=%ds  iso_probe=%s  wg21=%s",
+            self.cfg.poll_interval_minutes,
+            cooldown,
+            self.cfg.enable_iso_probe,
+            self.cfg.enable_bulk_wg21,
         )
         while True:
             t0 = time.monotonic()
@@ -269,6 +292,8 @@ class Scheduler:
             sleep_for = max(interval - elapsed, cooldown)
             log.info(
                 "SCHEDULER-SLEEP  sleep=%.0fs  (poll=%.0fs  interval=%ds)",
-                sleep_for, elapsed, interval,
+                sleep_for,
+                elapsed,
+                interval,
             )
             await asyncio.sleep(sleep_for)

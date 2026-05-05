@@ -1,12 +1,13 @@
 """Tests for paperscout.models."""
+
 from __future__ import annotations
 
 import pytest
 
 from paperscout.models import FileExt, Paper, PaperPrefix, PaperType
 
-
 # ── Enum sanity ──────────────────────────────────────────────────────────────
+
 
 def test_paper_prefix_values():
     assert PaperPrefix.D == "D"
@@ -36,6 +37,7 @@ def test_file_ext_values():
 
 # ── Paper properties: P-prefix ───────────────────────────────────────────────
 
+
 def test_paper_p_number_prefix_revision():
     p = Paper(id="P2300R10")
     assert p.number == 2300
@@ -59,6 +61,7 @@ def test_paper_d_prefix():
 
 # ── Paper properties: N-prefix ───────────────────────────────────────────────
 
+
 def test_paper_n_number():
     p = Paper(id="N4950")
     assert p.number == 4950
@@ -68,13 +71,17 @@ def test_paper_n_number():
 
 # ── Paper properties: issue tracker prefixes ─────────────────────────────────
 
-@pytest.mark.parametrize("paper_id,expected_prefix,expected_num", [
-    ("CWG123", "CWG", 123),
-    ("EWG456", "EWG", 456),
-    ("LWG789", "LWG", 789),
-    ("LEWG42", "LEWG", 42),
-    ("FS10", "FS", 10),
-])
+
+@pytest.mark.parametrize(
+    "paper_id,expected_prefix,expected_num",
+    [
+        ("CWG123", "CWG", 123),
+        ("EWG456", "EWG", 456),
+        ("LWG789", "LWG", 789),
+        ("LEWG42", "LEWG", 42),
+        ("FS10", "FS", 10),
+    ],
+)
 def test_paper_issue_prefixes(paper_id, expected_prefix, expected_num):
     p = Paper(id=paper_id)
     assert p.prefix == expected_prefix
@@ -83,6 +90,7 @@ def test_paper_issue_prefixes(paper_id, expected_prefix, expected_num):
 
 
 # ── Paper properties: unknown IDs ────────────────────────────────────────────
+
 
 def test_paper_unknown_id():
     p = Paper(id="UNKNOWN")
@@ -99,6 +107,7 @@ def test_paper_empty_id():
 
 
 # ── Paper.from_index_entry ───────────────────────────────────────────────────
+
 
 def test_from_index_entry_full():
     entry = {
@@ -175,6 +184,7 @@ def test_from_index_entry_standing_document_type():
 
 
 # ── Paper dataclass defaults ──────────────────────────────────────────────────
+
 
 def test_paper_default_fields():
     p = Paper(id="P1234R0")

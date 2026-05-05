@@ -1,17 +1,13 @@
 """Tests for paperscout.scout."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from paperscout.models import Paper
 from paperscout.monitor import DiffResult, DPTransition, PerUserMatches, PollResult
-from paperscout.sources import ProbeHit
-from paperscout.storage import ProbeState, UserWatchlist
 from paperscout.scout import (
-    MessageQueue,
     _batch_lines,
     _fmt_lm,
     _format_uptime,
@@ -27,9 +23,11 @@ from paperscout.scout import (
     notify_users,
     register_handlers,
 )
-
+from paperscout.sources import ProbeHit
+from paperscout.storage import ProbeState, UserWatchlist
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _empty_diff() -> DiffResult:
     return DiffResult(new_papers=[], updated_papers=[])
@@ -70,8 +68,12 @@ def _make_settings(channel="C123456", **overrides):
 def _recent_hit(tier="frontier", number=9999, **kwargs) -> ProbeHit:
     defaults = dict(
         url=f"https://isocpp.org/files/papers/D{number:04d}R0.pdf",
-        prefix="D", number=number, revision=0, extension=".pdf",
-        tier=tier, is_recent=True,
+        prefix="D",
+        number=number,
+        revision=0,
+        extension=".pdf",
+        tier=tier,
+        is_recent=True,
         last_modified=datetime.now(timezone.utc) - timedelta(hours=2),
     )
     defaults.update(kwargs)
@@ -79,6 +81,7 @@ def _recent_hit(tier="frontier", number=9999, **kwargs) -> ProbeHit:
 
 
 # ── _fmt_lm ───────────────────────────────────────────────────────────────────
+
 
 class TestFmtLm:
     def test_none(self):
@@ -99,6 +102,7 @@ class TestFmtLm:
 
 # ── _paper_link / _hit_label ──────────────────────────────────────────────────
 
+
 class TestHelpers:
     def test_paper_link_uses_url(self):
         paper = Paper(id="P2300R10", url="https://wg21.link/P2300R10")
@@ -115,12 +119,12 @@ class TestHelpers:
         assert "|P2300R10>" in link
 
     def test_hit_label(self):
-        label = _hit_label("https://isocpp.org/files/papers/D2300R11.pdf",
-                           "D", 2300, 11, ".pdf")
+        label = _hit_label("https://isocpp.org/files/papers/D2300R11.pdf", "D", 2300, 11, ".pdf")
         assert label == "<https://isocpp.org/files/papers/D2300R11.pdf|D2300R11.pdf>"
 
 
 # ── notify_channel ────────────────────────────────────────────────────────────
+
 
 class TestNotifyChannel:
     def test_no_channel_returns_silently(self):
@@ -203,11 +207,18 @@ class TestNotifyChannel:
     def test_dp_all_transitions_are_batched(self):
         app = MagicMock()
         mq = MagicMock()
-        paper = Paper(id="P2300R11", title="Senders", author="Unknown Author",
-                      url="https://wg21.link/P2300R11")
-        tr = DPTransition(paper=paper,
-                          draft_url="https://isocpp.org/files/papers/D2300R11.pdf",
-                          last_modified=1_700_000_000.0, discovered_at=1_699_900_000.0)
+        paper = Paper(
+            id="P2300R11",
+            title="Senders",
+            author="Unknown Author",
+            url="https://wg21.link/P2300R11",
+        )
+        tr = DPTransition(
+            paper=paper,
+            draft_url="https://isocpp.org/files/papers/D2300R11.pdf",
+            last_modified=1_700_000_000.0,
+            discovered_at=1_699_900_000.0,
+        )
         result = _make_result(dp_transitions=[tr])
         with patch("paperscout.scout.settings", _make_settings()):
             notify_channel(app, result, mq)
@@ -220,9 +231,12 @@ class TestNotifyChannel:
         app = MagicMock()
         mq = MagicMock()
         paper = Paper(id="P2300R11", title="X", author="Y")
-        tr = DPTransition(paper=paper,
-                          draft_url="https://isocpp.org/files/papers/D2300R11.pdf",
-                          last_modified=None, discovered_at=0.0)
+        tr = DPTransition(
+            paper=paper,
+            draft_url="https://isocpp.org/files/papers/D2300R11.pdf",
+            last_modified=None,
+            discovered_at=0.0,
+        )
         result = _make_result(dp_transitions=[tr])
         with patch("paperscout.scout.settings", _make_settings(notify_on_dp_transition=False)):
             notify_channel(app, result, mq)
@@ -232,9 +246,12 @@ class TestNotifyChannel:
         app = MagicMock()
         mq = MagicMock()
         paper = Paper(id="P9999R0", title="Foo", author="Bar", url="")
-        tr = DPTransition(paper=paper,
-                          draft_url="https://isocpp.org/files/papers/D9999R0.pdf",
-                          last_modified=None, discovered_at=0.0)
+        tr = DPTransition(
+            paper=paper,
+            draft_url="https://isocpp.org/files/papers/D9999R0.pdf",
+            last_modified=None,
+            discovered_at=0.0,
+        )
         result = _make_result(dp_transitions=[tr])
         with patch("paperscout.scout.settings", _make_settings()):
             notify_channel(app, result, mq)
@@ -244,6 +261,7 @@ class TestNotifyChannel:
 
 
 # ── notify_users ──────────────────────────────────────────────────────────────
+
 
 class TestNotifyUsers:
     def test_no_matches_posts_nothing(self):
@@ -256,8 +274,9 @@ class TestNotifyUsers:
     def test_author_match_sends_dm(self):
         app = MagicMock()
         mq = MagicMock()
-        paper = Paper(id="P2300R11", title="Senders", author="Eric Niebler",
-                      url="https://wg21.link/P2300R11")
+        paper = Paper(
+            id="P2300R11", title="Senders", author="Eric Niebler", url="https://wg21.link/P2300R11"
+        )
         pum = PerUserMatches(papers=[(paper, "author")], probe_hits=[])
         result = _make_result(per_user_matches={"U123": pum})
         notify_users(app, result, mq)
@@ -270,8 +289,7 @@ class TestNotifyUsers:
     def test_paper_match_sends_dm(self):
         app = MagicMock()
         mq = MagicMock()
-        paper = Paper(id="P2300R11", title="X", author="Someone",
-                      url="https://wg21.link/P2300R11")
+        paper = Paper(id="P2300R11", title="X", author="Someone", url="https://wg21.link/P2300R11")
         pum = PerUserMatches(papers=[(paper, "paper")], probe_hits=[])
         result = _make_result(per_user_matches={"U456": pum})
         notify_users(app, result, mq)
@@ -304,6 +322,7 @@ class TestNotifyUsers:
 
 # ── _batch_lines ──────────────────────────────────────────────────────────────
 
+
 class TestBatchLines:
     def test_single_batch_when_small(self):
         batches = _batch_lines(["line1", "line2", "line3"], max_len=1000)
@@ -324,6 +343,7 @@ class TestBatchLines:
 
 # ── _reply_opts ───────────────────────────────────────────────────────────────
 
+
 class TestReplyOpts:
     def test_no_thread(self):
         opts = _reply_opts({"ts": "123"})
@@ -336,6 +356,7 @@ class TestReplyOpts:
 
 
 # ── _handle_watchlist ─────────────────────────────────────────────────────────
+
 
 class TestHandleWatchlist:
     def test_add_new_author(self, fake_pool):
@@ -415,6 +436,7 @@ class TestHandleWatchlist:
 
 # ── _show_watchlist ───────────────────────────────────────────────────────────
 
+
 class TestShowWatchlist:
     def test_empty_watchlist(self, fake_pool):
         say = MagicMock()
@@ -441,6 +463,7 @@ class TestShowWatchlist:
 
 # ── _handle_status ────────────────────────────────────────────────────────────
 
+
 class TestHandleStatus:
     def test_status_never_polled(self, fake_pool):
         state = ProbeState(fake_pool)
@@ -462,6 +485,7 @@ class TestHandleStatus:
 
 # ── register_handlers ─────────────────────────────────────────────────────────
 
+
 class TestRegisterHandlers:
     def _setup(self, fake_pool):
         app = MagicMock()
@@ -471,6 +495,7 @@ class TestRegisterHandlers:
             def decorator(fn):
                 registered[name] = fn
                 return fn
+
             return decorator
 
         app.event.side_effect = capture_event
@@ -556,8 +581,12 @@ class TestRegisterHandlers:
         registered, _, _ = self._setup(fake_pool)
         say = MagicMock()
         registered["app_mention"](
-            event={"text": "<@U1> watchlist list", "ts": "1",
-                   "channel_type": "channel", "user": "U1"},
+            event={
+                "text": "<@U1> watchlist list",
+                "ts": "1",
+                "channel_type": "channel",
+                "user": "U1",
+            },
             context={"bot_user_id": "U1"},
             say=say,
         )
@@ -567,8 +596,12 @@ class TestRegisterHandlers:
         registered, _, _ = self._setup(fake_pool)
         say = MagicMock()
         registered["message"](
-            event={"text": "<@U1> watchlist add niebler", "channel_type": "mpim",
-                   "ts": "1", "user": "U1"},
+            event={
+                "text": "<@U1> watchlist add niebler",
+                "channel_type": "mpim",
+                "ts": "1",
+                "user": "U1",
+            },
             context={"bot_user_id": "U1"},
             say=say,
         )
@@ -580,8 +613,7 @@ class TestRegisterHandlers:
         say = MagicMock()
         with patch("paperscout.scout.settings", _make_settings()):
             registered["message"](
-                event={"text": "<@U1> status", "channel_type": "mpim",
-                       "ts": "1", "user": "U1"},
+                event={"text": "<@U1> status", "channel_type": "mpim", "ts": "1", "user": "U1"},
                 context={"bot_user_id": "U1"},
                 say=say,
             )
@@ -592,8 +624,12 @@ class TestRegisterHandlers:
         registered, _, _ = self._setup(fake_pool)
         say = MagicMock()
         registered["message"](
-            event={"text": "status", "subtype": "message_changed", "channel_type": "im",
-                   "user": "U1"},
+            event={
+                "text": "status",
+                "subtype": "message_changed",
+                "channel_type": "im",
+                "user": "U1",
+            },
             context={"bot_user_id": "U1"},
             say=say,
         )
@@ -663,6 +699,7 @@ class TestRegisterHandlers:
 
 # ── _handle_version ───────────────────────────────────────────────────────────
 
+
 class TestHandleVersion:
     def test_version_contains_version_string(self):
         say = MagicMock()
@@ -679,6 +716,7 @@ class TestHandleVersion:
 
 
 # ── _format_uptime / _handle_uptime ──────────────────────────────────────────
+
 
 class TestUptime:
     def test_format_uptime_minutes_only(self):
@@ -724,6 +762,7 @@ class TestUptime:
 
 # ── dispatch: version / uptime ────────────────────────────────────────────────
 
+
 class TestDispatchVersionUptime:
     def _setup(self, fake_pool, launch_time=None):
         app = MagicMock()
@@ -733,6 +772,7 @@ class TestDispatchVersionUptime:
             def decorator(fn):
                 registered[name] = fn
                 return fn
+
             return decorator
 
         app.event.side_effect = capture_event
@@ -781,9 +821,11 @@ class TestDispatchVersionUptime:
 
 # ── create_app ────────────────────────────────────────────────────────────────
 
+
 class TestCreateApp:
     def test_create_app_uses_settings(self):
         from paperscout.scout import create_app
+
         mock_settings = MagicMock()
         mock_settings.slack_bot_token = "xoxb-test"
         mock_settings.slack_signing_secret = "secret"

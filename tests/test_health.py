@@ -1,4 +1,5 @@
 """Tests for paperscout.health."""
+
 from __future__ import annotations
 
 import json
@@ -12,6 +13,7 @@ from paperscout.health import start_health_server
 
 def _find_free_port() -> int:
     import socket
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
         return s.getsockname()[1]

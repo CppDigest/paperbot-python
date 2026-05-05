@@ -1,0 +1,15 @@
+# Default: normalize line endings in the repo checkout.
+* text=auto
+
+# Unix-style scripts and CI configs
+*.sh text eol=lf
+.github/**/*.yml text eol=lf
+
+# Python sources
+*.py text eol=lf
+
+# Markdown and docs
+*.md text eol=lf
+
+# Windows batch files (if any)
+*.bat text eol=crlf
