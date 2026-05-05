@@ -141,7 +141,7 @@ ngrok http 3000
 
 The scout runs as a Docker container deployed via CD. A push to **`main`** deploys to **production**; a push to **`develop`** deploys to **staging**. Both paths run the same workflow and the same job — only the **GitHub Environment** changes.
 
-```
+```text
 Push to main    → CI tests → SSH into prod    → git pull --ff-only → docker compose up --build → Health check (retry)
 Push to develop → CI tests → SSH into staging → git pull --ff-only → docker compose up --build → Health check (retry)
 ```
@@ -150,15 +150,15 @@ Push to develop → CI tests → SSH into staging → git pull --ff-only → doc
 
 Create two environments under **Settings → Environments**: `production` and `staging`. Both use the **same secret names** (different values per environment) and a small set of per-environment **Variables**:
 
-| Type     | Name              | Production              | Staging                          |
-|----------|-------------------|-------------------------|----------------------------------|
-| Secret   | `SERVER_HOST`     | prod host / IP          | staging host / IP                |
-| Secret   | `SERVER_USER`     | deploy user             | deploy user                      |
-| Secret   | `SERVER_SSH_KEY`  | private key             | private key                      |
-| Secret   | `SERVER_PORT`     | optional (default `22`) | optional (default `22`)          |
-| Variable | `DEPLOY_PATH`     | `/opt/paperscout`       | `/opt/paperscout-staging`        |
-| Variable | `DEPLOY_BRANCH`   | `main`                  | `develop`                        |
-| Variable | `HEALTH_PORT`     | `9101`                  | `9102` (or whatever staging maps)|
+| Type     | Name             | Production              | Staging                           |
+| -------- | ---------------- | ----------------------- | --------------------------------- |
+| Secret   | `SERVER_HOST`    | prod host / IP          | staging host / IP                 |
+| Secret   | `SERVER_USER`    | deploy user             | deploy user                       |
+| Secret   | `SERVER_SSH_KEY` | private key             | private key                       |
+| Secret   | `SERVER_PORT`    | optional (default `22`) | optional (default `22`)           |
+| Variable | `DEPLOY_PATH`    | `/opt/paperscout`       | `/opt/paperscout-staging`         |
+| Variable | `DEPLOY_BRANCH`  | `main`                  | `develop`                         |
+| Variable | `HEALTH_PORT`    | `9101`                  | `9102` (or whatever staging maps) |
 
 The workflow picks the environment from the branch (`refs/heads/main` → `production`, `refs/heads/develop` → `staging`), so values like `DEPLOY_PATH` and `HEALTH_PORT` are not hard-coded in the YAML.
 
