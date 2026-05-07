@@ -177,7 +177,7 @@ Clone the repo into `/opt/paperscout`:
 
 ```bash
 sudo mkdir -p /opt
-sudo git clone https://github.com/cppalliance/paperscout-python.git /opt/paperscout
+sudo git clone https://github.com/cppalliance/paperscout.git /opt/paperscout
 sudo chown -R gcp-cppdigest:gcp-cppdigest /opt/paperscout
 ```
 

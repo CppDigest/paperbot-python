@@ -31,8 +31,8 @@ Supporting directories: [`tests/`](../tests/) (pytest), [`deploy/`](../deploy/) 
 ### 1. Clone and virtual environment
 
 ```bash
-git clone https://github.com/cppalliance/paperscout-python.git
-cd paperscout-python
+git clone https://github.com/cppalliance/paperscout.git
+cd paperscout
 python -m venv .venv
 source .venv/bin/activate   # Windows Git Bash: source .venv/Scripts/activate
 pip install -e ".[dev]"
