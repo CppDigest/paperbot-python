@@ -5,6 +5,8 @@ services:
       - "127.0.0.1:9100:3000"
       - "127.0.0.1:9101:8080"
     env_file: .env
+    environment:
+      HEALTH_BIND_HOST: "0.0.0.0"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     logging:

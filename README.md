@@ -1,7 +1,7 @@
-# paperscout-python
+# paperscout
 
-[![CI](https://github.com/cppalliance/paperscout-python/actions/workflows/ci.yml/badge.svg)](https://github.com/cppalliance/paperscout-python/actions/workflows/ci.yml)
-[![CD](https://github.com/cppalliance/paperscout-python/actions/workflows/cd.yml/badge.svg)](https://github.com/cppalliance/paperscout-python/actions/workflows/cd.yml)
+[![CI](https://github.com/cppalliance/paperscout/actions/workflows/ci.yml/badge.svg)](https://github.com/cppalliance/paperscout/actions/workflows/ci.yml)
+[![CD](https://github.com/cppalliance/paperscout/actions/workflows/cd.yml/badge.svg)](https://github.com/cppalliance/paperscout/actions/workflows/cd.yml)
 
 WG21 C++ paper tracker with ISO draft probing and Slack notifications.
 
@@ -79,7 +79,7 @@ Go to **App Home** in the left sidebar:
 ### 6. Configure and Start the Scout
 
 ```bash
-cd paperscout-python
+cd paperscout
 cp .env.example .env
 ```
 
@@ -172,7 +172,7 @@ The workflow picks the environment from the branch (`refs/heads/main` → `produ
 
 ```bash
 # On the production server (after Docker, PostgreSQL, and nginx are set up)
-git clone https://github.com/cppalliance/paperscout-python.git /opt/paperscout
+git clone https://github.com/cppalliance/paperscout.git /opt/paperscout
 cd /opt/paperscout
 cp .env.example .env        # edit with real credentials
 docker compose up -d --build
@@ -182,7 +182,7 @@ curl -sf http://localhost:9101/health
 On the **staging** server (separate host or separate path on the same host; must match the `staging` environment's `DEPLOY_PATH` and expose `/health` on `HEALTH_PORT`):
 
 ```bash
-git clone -b develop https://github.com/cppalliance/paperscout-python.git /opt/paperscout-staging
+git clone -b develop https://github.com/cppalliance/paperscout.git /opt/paperscout-staging
 cd /opt/paperscout-staging
 cp .env.example .env   # use staging credentials / DB / Slack app as appropriate
 docker compose up -d --build
@@ -225,15 +225,23 @@ All parameters are configurable via environment variables or a `.env` file. See 
 | `SLACK_BOT_TOKEN`      | Slack bot token (`xoxb-...`)                                         |
 | `DATABASE_URL`         | PostgreSQL connection string (`postgresql://user:pass@host:5432/db`) |
 
+### Server
+
+| Variable             | Default     | Description                                                                                                                                 |
+| -------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`               | `3000`      | Slack Bolt HTTP listener                                                                                                                    |
+| `HEALTH_PORT`        | `8080`      | GET `/health` JSON endpoint                                                                                                                 |
+| `HEALTH_BIND_HOST`   | `127.0.0.1` | Bind address for the health server (localhost-only). Use `0.0.0.0` inside Docker when publishing ports to the host; see `docker-compose.yml`. |
+
 ### Scheduling
 
-| Variable                | Default | Description                                            |
-| ----------------------- | ------- | ------------------------------------------------------ |
-| `POLL_INTERVAL_MINUTES` | `30`    | Main polling cycle interval                            |
-| `POLL_OVERRUN_COOLDOWN_SECONDS` | `300` | Minimum sleep after a poll cycle that overran the interval (avoids tight loops when work or errors stretch a cycle) |
-| `ENABLE_BULK_WG21`      | `true`  | Fetch wg21.link/index.json each cycle                  |
-| `ENABLE_BULK_OPENSTD`   | `true`  | Reserved for open-std.org scraping (not yet scheduled) |
-| `ENABLE_ISO_PROBE`      | `true`  | Run isocpp.org HEAD probing each cycle                 |
+| Variable                        | Default | Description                                                                                                         |
+| ------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| `POLL_INTERVAL_MINUTES`         | `30`    | Main polling cycle interval                                                                                         |
+| `POLL_OVERRUN_COOLDOWN_SECONDS` | `300`   | Minimum sleep after a poll cycle that overran the interval (avoids tight loops when work or errors stretch a cycle) |
+| `ENABLE_BULK_WG21`              | `true`  | Fetch wg21.link/index.json each cycle                                                                               |
+| `ENABLE_BULK_OPENSTD`           | `true`  | Reserved for open-std.org scraping (not yet scheduled)                                                              |
+| `ENABLE_ISO_PROBE`              | `true`  | Run isocpp.org HEAD probing each cycle                                                                              |
 
 ### Probe Prefixes / Extensions
 
@@ -302,7 +310,7 @@ All parameters are configurable via environment variables or a `.env` file. See 
 ## Architecture
 
 ```
-paperscout-python/
+paperscout/
   src/paperscout/
     __main__.py     Entry point; wires together all components
     config.py       All settings via pydantic-settings
@@ -312,7 +320,7 @@ paperscout-python/
     scout.py        Slack Bolt app, MessageQueue, notify_channel, notify_users
     storage.py      PaperCache, ProbeState, UserWatchlist (all PostgreSQL-backed)
     db.py           ThreadedConnectionPool init and schema DDL
-    health.py       HTTP health-check endpoint (GET /health on port 8080)
+    health.py       HTTP health-check endpoint (GET /health; bind via HEALTH_BIND_HOST)
   data/             Log files (gitignored); all other state lives in PostgreSQL
   deploy/
     paperscout.conf Reference nginx site config (443 → 3000, /health → 8080)
@@ -380,8 +388,8 @@ The `Last-Modified` timestamp is shown in every notification message.
 ### Setup
 
 ```bash
-git clone https://github.com/cppalliance/paperscout-python.git
-cd paperscout-python
+git clone https://github.com/cppalliance/paperscout.git
+cd paperscout
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"

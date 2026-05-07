@@ -3,6 +3,9 @@
 Step-by-step guide for provisioning a fresh Ubuntu 22.04 server to run
 paperscout alongside other apps that share the same PostgreSQL and nginx.
 
+Substitute **`<deploy-user>`** with your SSH/deploy UNIX username wherever it
+appears (file ownership, Docker group).
+
 ---
 
 ## 1. System basics
@@ -41,7 +44,7 @@ sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
 # Let the deploy user run docker without sudo
-sudo usermod -aG docker gcp-cppdigest
+sudo usermod -aG docker <deploy-user>
 newgrp docker
 ```
 
@@ -136,15 +139,15 @@ sudo apt install -y nginx
 
 # Obtain a Let's Encrypt certificate (skip if already done for this domain)
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d dev.cppdigest.org
+sudo certbot --nginx -d your-domain.example.org
 ```
 
-Certbot creates a server block for `dev.cppdigest.org` in the default
+Certbot creates a server block for `your-domain.example.org` in the default
 nginx config. Add the paperscout location blocks **inside that existing
 server block** (do NOT create a separate server block -- nginx will
 ignore it in favour of the first match).
 
-Open the config and find the `dev.cppdigest.org` server block with
+Open the config and find the `your-domain.example.org` server block with
 `listen 443 ssl;`. Add these lines before its closing `}`:
 
 ```nginx
@@ -177,8 +180,8 @@ Clone the repo into `/opt/paperscout`:
 
 ```bash
 sudo mkdir -p /opt
-sudo git clone https://github.com/cppalliance/paperscout-python.git /opt/paperscout
-sudo chown -R gcp-cppdigest:gcp-cppdigest /opt/paperscout
+sudo git clone https://github.com/<org>/<repo>.git /opt/paperscout
+sudo chown -R <deploy-user>:<deploy-user> /opt/paperscout
 ```
 
 Create the `.env` file:
@@ -196,6 +199,10 @@ The `DATABASE_URL` should use `host.docker.internal`:
 ```
 DATABASE_URL=postgresql://paperscout:<password>@host.docker.internal:5432/paperscout
 ```
+
+The Docker Compose file sets **`HEALTH_BIND_HOST=0.0.0.0`** so the health
+HTTP server accepts connections from Docker’s port publishing (the default
+`127.0.0.1` bind is for bare-metal / localhost-only use).
 
 > **Note:** If the password contains special characters, they must be
 > percent-encoded in the URL (e.g. `@` → `%40`, `!` → `%21`).
@@ -248,7 +255,7 @@ Configure these in the repo under **Settings → Secrets and variables → Actio
 | Secret           | Purpose                             |
 | ---------------- | ----------------------------------- |
 | `SERVER_HOST`    | Server IP or hostname               |
-| `SERVER_USER`    | SSH username (e.g. `gcp-cppdigest`) |
+| `SERVER_USER`    | SSH username (e.g. `<deploy-user>`) |
 | `SERVER_SSH_KEY` | Private SSH key for the deploy user |
 | `SERVER_PORT`    | SSH port (optional, defaults to 22) |
 

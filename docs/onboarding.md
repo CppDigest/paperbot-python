@@ -31,8 +31,8 @@ Supporting directories: [`tests/`](../tests/) (pytest), [`deploy/`](../deploy/) 
 ### 1. Clone and virtual environment
 
 ```bash
-git clone https://github.com/cppalliance/paperscout-python.git
-cd paperscout-python
+git clone https://github.com/cppalliance/paperscout.git
+cd paperscout
 python -m venv .venv
 source .venv/bin/activate   # Windows Git Bash: source .venv/Scripts/activate
 pip install -e ".[dev]"
@@ -197,13 +197,15 @@ Every key from [`.env.example`](../.env.example) is listed below. Names in `.env
 ### Storage and logging
 
 | Variable             | Default  | Meaning                                                       |
-| -------------------- | -------- | ------------------------------------------------------------- |
+| -------------------- | -------- | ------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `DATA_DIR`           | `./data` | Log directory (and local file layout); created if missing.    |
 | `CACHE_TTL_HOURS`    | `1`      | Staleness window for cached wg21 index blob in Postgres.      |
 | `LOG_LEVEL`          | `INFO`   | Console/file log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `LOG_RETENTION_DAYS` | `7`      | Days of rotated log files to retain.                          |
+| `HEALTH_PORT`        | No       | `8080`                                                        | Port for the `GET /health` endpoint.                                        |
+| `HEALTH_BIND_HOST`   | No       | `127.0.0.1`                                                   | Bind host for health server; use `0.0.0.0` in Docker when publishing ports. |
 
-**Note:** `health_port` (default `8080`) exists in [Settings](../src/paperscout/config.py) but is not listed in `.env.example`. You can still set `HEALTH_PORT` in `.env` if you need to override the default.
+Docker Compose sets `HEALTH_BIND_HOST=0.0.0.0` so the health endpoint accepts connections through published ports.
 
 ## Scheduling (asyncio loop)
 

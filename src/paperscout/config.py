@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     slack_bot_token: str = ""
     port: int = 3000
     health_port: int = 8080
+    # Empty string means all interfaces (0.0.0.0); Docker Compose sets HEALTH_BIND_HOST=0.0.0.0.
+    health_bind_host: str = "127.0.0.1"
 
     # -- Scheduling --
     poll_interval_minutes: int = 30
