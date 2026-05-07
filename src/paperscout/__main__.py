@@ -116,7 +116,13 @@ async def _async_main() -> None:
 
     register_handlers(app, user_watchlist, state, paper_count_fn, launch_time)
 
-    start_health_server(settings.health_port, launch_time, state, paper_count_fn)
+    start_health_server(
+        settings.health_port,
+        launch_time,
+        state,
+        paper_count_fn,
+        bind_host=settings.health_bind_host,
+    )
     log.info("Starting Slack Bolt app on port %d", settings.port)
     bolt_thread = threading.Thread(
         target=app.start,

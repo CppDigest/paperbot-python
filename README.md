@@ -225,6 +225,14 @@ All parameters are configurable via environment variables or a `.env` file. See 
 | `SLACK_BOT_TOKEN`      | Slack bot token (`xoxb-...`)                                         |
 | `DATABASE_URL`         | PostgreSQL connection string (`postgresql://user:pass@host:5432/db`) |
 
+### Server
+
+| Variable             | Default     | Description                                                                                                                                 |
+| -------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`               | `3000`      | Slack Bolt HTTP listener                                                                                                                    |
+| `HEALTH_PORT`        | `8080`      | GET `/health` JSON endpoint                                                                                                                 |
+| `HEALTH_BIND_HOST`   | `127.0.0.1` | Bind address for the health server (localhost-only). Use `0.0.0.0` inside Docker when publishing ports to the host; see `docker-compose.yml`. |
+
 ### Scheduling
 
 | Variable                        | Default | Description                                                                                                         |
@@ -312,7 +320,7 @@ paperscout/
     scout.py        Slack Bolt app, MessageQueue, notify_channel, notify_users
     storage.py      PaperCache, ProbeState, UserWatchlist (all PostgreSQL-backed)
     db.py           ThreadedConnectionPool init and schema DDL
-    health.py       HTTP health-check endpoint (GET /health on port 8080)
+    health.py       HTTP health-check endpoint (GET /health; bind via HEALTH_BIND_HOST)
   data/             Log files (gitignored); all other state lives in PostgreSQL
   deploy/
     paperscout.conf Reference nginx site config (443 → 3000, /health → 8080)

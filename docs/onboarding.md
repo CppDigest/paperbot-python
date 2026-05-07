@@ -203,7 +203,7 @@ Every key from [`.env.example`](../.env.example) is listed below. Names in `.env
 | `LOG_LEVEL`          | `INFO`   | Console/file log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `LOG_RETENTION_DAYS` | `7`      | Days of rotated log files to retain.                          |
 
-**Note:** `health_port` (default `8080`) exists in [Settings](../src/paperscout/config.py) but is not listed in `.env.example`. You can still set `HEALTH_PORT` in `.env` if you need to override the default.
+**Note:** `health_port` and `health_bind_host` are listed in [`.env.example`](../.env.example). Docker Compose sets `HEALTH_BIND_HOST=0.0.0.0` so the health endpoint accepts connections through published ports.
 
 ## Scheduling (asyncio loop)
 

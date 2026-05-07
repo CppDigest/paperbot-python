@@ -66,8 +66,9 @@ def start_health_server(
     launch_time: datetime,
     state,
     paper_count_fn: Callable[[], int],
+    bind_host: str = "127.0.0.1",
 ) -> HTTPServer:
-    """Start the ``/health`` HTTP server on *port* in a daemon thread."""
+    """Start the ``/health`` HTTP server on *bind_host*:*port* in a daemon thread."""
 
     handler = type(
         "_BoundHealthHandler",
@@ -79,8 +80,8 @@ def start_health_server(
         },
     )
 
-    server = HTTPServer(("", port), handler)
+    server = HTTPServer((bind_host, port), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="health")
     thread.start()
-    log.info("Health endpoint listening on port %d", port)
+    log.info("Health endpoint listening on %s:%d", bind_host, port)
     return server
