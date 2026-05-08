@@ -113,15 +113,17 @@ python -m paperscout
 Once the scout is running and reachable at a public URL:
 
 1. Go back to **Event Subscriptions** in the Slack app config
-2. Set **Request URL** to `https://your-server.com/slack/events`
-3. Slack will send a challenge request -- the scout responds automatically
+2. Set **Request URL** depending on how traffic reaches Bolt:
+   - **Reverse proxy (recommended for production/staging):** If nginx terminates TLS and proxies under a path prefix (see [`deploy/paperscout.conf`](deploy/paperscout.conf)), Slack must use that prefix. Example: `https://your-domain.example.org/paperscout/slack/events` — not `https://your-domain.example.org/slack/events`.
+   - **Direct to the app (local dev or ngrok without nginx):** Bolt serves `/slack/events` at the container root. Example: `https://staging.example.org/slack/events` or `https://abc123.ngrok-free.app/slack/events`.
+3. Slack will send a challenge request — the scout responds automatically
 4. Click **Save Changes**
 
-For local testing with ngrok:
+For local testing with ngrok (traffic straight to `PORT`, no path prefix):
 
 ```bash
 ngrok http 3000
-# Use the ngrok URL: https://abc123.ngrok.io/slack/events
+# Use: https://<ngrok-host>/slack/events
 ```
 
 ### 8. Invite the Scout
@@ -191,7 +193,7 @@ curl -sf http://localhost:9102/health
 
 See [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md) for the full Ubuntu 22.04 provisioning guide, and [`.github/workflows/cd.yml`](.github/workflows/cd.yml) for the CD pipeline.
 
-Database backups run daily via [`.github/workflows/db-backup.yml`](.github/workflows/db-backup.yml), uploading `pg_dump` snapshots to Google Cloud Storage.
+Database backups run daily via [`.github/workflows/db-backup.yml`](.github/workflows/db-backup.yml): **matrix jobs** for **`staging`** and **`production`** run **in parallel**, each using that **GitHub Environment’s** SSH secrets (same names as CD: `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`, optional `SERVER_PORT`). Dumps are uploaded to **`gs://insights-db-backups/paperscout/<environment>/`** so staging and production stay under the shared **`paperscout`** prefix in the bucket.
 
 ## Scout Commands
 
@@ -331,7 +333,7 @@ paperscout/
   .github/workflows/
     ci.yml          Test matrix on push/PR to main
     cd.yml          SSH deploy (git pull + build) on push to main
-    db-backup.yml   Daily pg_dump to Google Cloud Storage
+    db-backup.yml   Matrix pg_dump (staging + production) to GCS insights-db-backups/paperscout/<env>/
 ```
 
 ### PostgreSQL Schema
@@ -453,8 +455,8 @@ A `concurrency` group keyed by branch prevents overlapping deploys to the same e
 
 The `.github/workflows/db-backup.yml` workflow runs daily at 3 AM UTC (and supports manual dispatch):
 
-1. SSHes into the server and runs `pg_dump` on the host's PostgreSQL
-2. Uploads the dump to Google Cloud Storage (`gs://paperscout-backups/`)
-3. Old backups are auto-pruned by a GCS lifecycle rule (30 days)
+1. Runs **two jobs in parallel** (matrix: `staging`, `production`), each bound to the matching **GitHub Environment** so SSH secrets match that tier’s server (same secret names as CD).
+2. On each host, runs `pg_dump` and uploads to **`gs://insights-db-backups/paperscout/<environment>/paperscout-<YYYYMMDD>.dump`**.
+3. Configure lifecycle rules on the bucket/prefixes as needed (for example, pruning objects older than 30 days).
 
-CD secrets and variables are configured per **GitHub Environment** (`production` and `staging`); see the table in [Deployment](#deployment). Other secrets (e.g. database backups) are documented in [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md#9-github-secrets-checklist).
+SSH credentials for backups live under **each environment** (`staging`, `production`), not at the repository level — parallel to [Deployment](#deployment). See [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md#9-github-secrets-and-environments).

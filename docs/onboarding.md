@@ -99,7 +99,7 @@ python -m paperscout
 - **Slack HTTP app** listens on `PORT` (default **3000**).
 - **Health** endpoint listens on `health_port` from settings (default **8080**) — `GET /health`.
 
-For Slack Event Subscriptions you need a public URL (e.g. ngrok); see [README](../README.md#7-set-the-request-url).
+For Slack Event Subscriptions you need a public URL (e.g. ngrok). With nginx and a `/paperscout/` prefix, the Request URL must include that path; see [README — Set the Request URL](../README.md#7-set-the-request-url).
 
 ## Deployment (summary)
 

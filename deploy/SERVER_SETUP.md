@@ -100,10 +100,11 @@ rm /tmp/paperscout.dump
 ```
 
 If the dump is stored in GCS (from the daily backup workflow),
-download it directly on the new server instead:
+download it directly on the new server instead — use the prefix that matches
+the environment you are restoring (**`staging`** or **`production`**):
 
 ```bash
-gsutil cp gs://paperscout-backups/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
+gsutil cp gs://insights-db-backups/paperscout/<environment>/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
 pg_restore -U paperscout -h localhost -d paperscout --no-owner /tmp/paperscout.dump
 rm /tmp/paperscout.dump
 ```
@@ -180,7 +181,7 @@ Clone the repo into `/opt/paperscout`:
 
 ```bash
 sudo mkdir -p /opt
-sudo git clone https://github.com/<org>/<repo>.git /opt/paperscout
+sudo git clone https://github.com/cppalliance/paperscout.git /opt/paperscout
 sudo chown -R <deploy-user>:<deploy-user> /opt/paperscout
 ```
 
@@ -222,6 +223,14 @@ curl -sf http://localhost:9101/health | python3 -m json.tool
 docker compose logs -f paperscout
 ```
 
+### Example: staging-style host
+
+If you use a **separate** staging deployment (second clone path and GitHub Environment `staging`), typical placeholders are:
+
+- TLS / DNS: `sudo certbot --nginx -d staging.example.org` (replace with your real staging hostname when provisioning).
+- Health check on the staging machine after mapping ports (see README CD table): `curl -sf http://localhost:9102/health` — use whatever port your staging compose publishes for health instead of `9102` if different.
+- Slack **Request URL** when nginx proxies under `/paperscout/`: `https://staging.example.org/paperscout/slack/events`.
+
 ---
 
 ## 7. Restoring from a GCS backup (optional)
@@ -229,7 +238,7 @@ docker compose logs -f paperscout
 If migrating from another server with an existing database:
 
 ```bash
-gsutil cp gs://paperscout-backups/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
+gsutil cp gs://insights-db-backups/paperscout/<environment>/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
 pg_restore -U paperscout -h localhost -d paperscout -c /tmp/paperscout.dump
 rm /tmp/paperscout.dump
 ```
@@ -238,26 +247,31 @@ rm /tmp/paperscout.dump
 
 ## 8. Database backups
 
-The `db-backup.yml` GitHub Actions workflow SSHes into the server daily
-and runs `pg_dump` + `gsutil cp` to upload to GCS. The VM's service
-account handles authentication automatically — no credentials needed.
+The `db-backup.yml` workflow runs **two parallel matrix jobs** (`staging` and
+`production`). Each job uses the **GitHub Environment** with the same name, so
+SSH secrets (`SERVER_HOST`, etc.) resolve per tier — matching CD. Each run uploads to:
 
-The GCS bucket `paperscout-backups` should have a lifecycle rule to
-auto-delete objects older than 30 days (configured in the Cloud Console
-under the bucket's **Lifecycle** tab).
+```text
+gs://insights-db-backups/paperscout/<environment>/paperscout-<YYYYMMDD>.dump
+```
+
+The bucket **`insights-db-backups`**, prefix **`paperscout/<environment>/`**, should have lifecycle rules as appropriate (for example, pruning old dumps under each environment path).
 
 ---
 
-## 9. GitHub Secrets checklist
+## 9. GitHub secrets and environments
 
-Configure these in the repo under **Settings → Secrets and variables → Actions**:
+**Continuous deployment** (`cd.yml`) and **database backups** (`db-backup.yml`)
+both use the **`staging`** and **`production`** GitHub Environments. Configure the **same SSH secret names** in each environment (values differ per server):
 
-| Secret           | Purpose                             |
-| ---------------- | ----------------------------------- |
-| `SERVER_HOST`    | Server IP or hostname               |
-| `SERVER_USER`    | SSH username (e.g. `<deploy-user>`) |
-| `SERVER_SSH_KEY` | Private SSH key for the deploy user |
-| `SERVER_PORT`    | SSH port (optional, defaults to 22) |
+| Secret           | Purpose                                                  |
+| ---------------- | -------------------------------------------------------- |
+| `SERVER_HOST`    | SSH target host for that environment’s VM                |
+| `SERVER_USER`    | SSH username (e.g. `<deploy-user>`)                      |
+| `SERVER_SSH_KEY` | Private SSH key for the deploy user                      |
+| `SERVER_PORT`    | SSH port (optional; default `22`)                         |
+
+CD also uses **environment Variables** (`DEPLOY_PATH`, `DEPLOY_BRANCH`, `HEALTH_PORT`) — see the README Deployment table. Backup jobs only need the secrets above.
 
 `GITHUB_TOKEN` is provided automatically by GitHub Actions.
-GCS authentication uses the VM's service account — no extra secrets needed.
+GCS uploads use the VM's service account (`gsutil`) — ensure each server can write to `gs://insights-db-backups/paperscout/<environment>/`.
