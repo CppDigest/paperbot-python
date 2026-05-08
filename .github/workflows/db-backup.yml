@@ -28,6 +28,7 @@ jobs:
             RUN_KEY="${{ github.run_id }}-${{ github.run_attempt }}"
             DUMP="/tmp/paperscout-${{ matrix.environment }}-${STAMP}-${RUN_KEY}.dump"
             DEST="gs://insights-db-backups/paperscout/${{ matrix.environment }}/paperscout-${STAMP}-${RUN_KEY}.dump"
+            trap 'rm -f "$DUMP"' EXIT
 
             sudo -u postgres pg_dump -Fc paperscout > "$DUMP"
             gsutil cp "$DUMP" "$DEST"
