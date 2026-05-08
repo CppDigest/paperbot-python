@@ -101,10 +101,13 @@ rm /tmp/paperscout.dump
 
 If the dump is stored in GCS (from the daily backup workflow),
 download it directly on the new server instead — use the prefix that matches
-the environment you are restoring (**`staging`** or **`production`**):
+the environment you are restoring (**`staging`** or **`production`**). Object
+names include UTC time and the workflow run id (see §8); pick the file you need,
+for example:
 
 ```bash
-gsutil cp gs://insights-db-backups/paperscout/<environment>/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
+gsutil ls gs://insights-db-backups/paperscout/<environment>/
+gsutil cp gs://insights-db-backups/paperscout/<environment>/paperscout-<object-name>.dump /tmp/paperscout.dump
 pg_restore -U paperscout -h localhost -d paperscout --no-owner /tmp/paperscout.dump
 rm /tmp/paperscout.dump
 ```
@@ -238,8 +241,9 @@ If you use a **separate** staging deployment (second clone path and GitHub Envir
 If migrating from another server with an existing database:
 
 ```bash
-gsutil cp gs://insights-db-backups/paperscout/<environment>/paperscout-<YYYYMMDD>.dump /tmp/paperscout.dump
-pg_restore -U paperscout -h localhost -d paperscout -c /tmp/paperscout.dump
+gsutil ls gs://insights-db-backups/paperscout/<environment>/
+gsutil cp gs://insights-db-backups/paperscout/<environment>/paperscout-<object-name>.dump /tmp/paperscout.dump
+pg_restore -U paperscout -h localhost -d paperscout -c --no-owner /tmp/paperscout.dump
 rm /tmp/paperscout.dump
 ```
 
@@ -252,10 +256,10 @@ The `db-backup.yml` workflow runs **two parallel matrix jobs** (`staging` and
 SSH secrets (`SERVER_HOST`, etc.) resolve per tier — matching CD. Each run uploads to:
 
 ```text
-gs://insights-db-backups/paperscout/<environment>/paperscout-<YYYYMMDD>.dump
+gs://insights-db-backups/paperscout/<environment>/paperscout-<UTC-timestamp>-<run-id>-<run-attempt>.dump
 ```
 
-The bucket **`insights-db-backups`**, prefix **`paperscout/<environment>/`**, should have lifecycle rules as appropriate (for example, pruning old dumps under each environment path).
+Object keys include the workflow run id so same-day reruns do not overwrite objects; each matrix job uses its own temp file on the host.
 
 ---
 

@@ -456,7 +456,7 @@ A `concurrency` group keyed by branch prevents overlapping deploys to the same e
 The `.github/workflows/db-backup.yml` workflow runs daily at 3 AM UTC (and supports manual dispatch):
 
 1. Runs **two jobs in parallel** (matrix: `staging`, `production`), each bound to the matching **GitHub Environment** so SSH secrets match that tier’s server (same secret names as CD).
-2. On each host, runs `pg_dump` and uploads to **`gs://insights-db-backups/paperscout/<environment>/paperscout-<YYYYMMDD>.dump`**.
+2. On each host, runs `pg_dump` and uploads to **`gs://insights-db-backups/paperscout/<environment>/`**, using object keys that include UTC time plus the GitHub Actions run id so backups do not collide on reruns.
 3. Configure lifecycle rules on the bucket/prefixes as needed (for example, pruning objects older than 30 days).
 
 SSH credentials for backups live under **each environment** (`staging`, `production`), not at the repository level — parallel to [Deployment](#deployment). See [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md#9-github-secrets-and-environments).

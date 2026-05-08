@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Documentation: deployment URLs (Slack Request URL behind nginx `/paperscout/`), clone URL in server setup, staging-style placeholders.
-- `db-backup.yml`: matrix parallel backups for `staging` and `production` using environment-level SSH secrets; uploads to `gs://insights-db-backups/paperscout/<environment>/`.
+- `db-backup.yml`: matrix parallel backups for `staging` / `production` using environment-level SSH secrets; uploads under `gs://insights-db-backups/paperscout/<environment>/` with unique temp files and object keys (UTC timestamp + `run_id` + `run_attempt` + environment). `SERVER_SETUP` restore examples updated (`--no-owner`, listing/copy by object name).
 
 ## [0.1.0] - 2026-05-05
 
