@@ -41,6 +41,14 @@ jobs:
        || github.ref == 'refs/heads/develop' && 'staging'
        || '' }}
     steps:
+      - name: Validate GitHub Environment variables
+        run: |
+          set -euo pipefail
+          err() { echo "::error title=Missing environment variable::$1" >&2; exit 1; }
+          [ -n "${{ vars.DEPLOY_PATH }}" ] || err "Set Variable DEPLOY_PATH on this job's GitHub Environment (e.g. /opt/paperscout). Settings → Environments → ${{ github.environment }} → Environment variables."
+          [ -n "${{ vars.DEPLOY_BRANCH }}" ] || err "Set Variable DEPLOY_BRANCH (e.g. main or develop)."
+          [ -n "${{ vars.HEALTH_PORT }}" ] || err "Set Variable HEALTH_PORT to the host port published for GET /health (see docker-compose / README; e.g. 9101). Without it the workflow builds http://localhost:/health and curl fails."
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:

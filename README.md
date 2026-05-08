@@ -154,7 +154,7 @@ Push to develop → CI tests → SSH into staging → git pull --ff-only → doc
 
 #### Configure GitHub Environments
 
-Create two environments under **Settings → Environments**: `production` and `staging`. Both use the **same secret names** (different values per environment) and a small set of per-environment **Variables**:
+Create two environments under **Settings → Environments**: `production` and `staging`. Both use the **same secret names** (different values per environment) and **these Environment variables are required for CD** — if `HEALTH_PORT` is omitted, the workflow builds `http://localhost:/health` and the deploy fails at the health check:
 
 | Type     | Name             | Production              | Staging                           |
 | -------- | ---------------- | ----------------------- | --------------------------------- |
@@ -162,9 +162,9 @@ Create two environments under **Settings → Environments**: `production` and `s
 | Secret   | `SERVER_USER`    | deploy user             | deploy user                       |
 | Secret   | `SERVER_SSH_KEY` | private key             | private key                       |
 | Secret   | `SERVER_PORT`    | optional (default `22`) | optional (default `22`)           |
-| Variable | `DEPLOY_PATH`    | `/opt/paperscout`       | `/opt/paperscout-staging`         |
+| Variable | `DEPLOY_PATH`    | `/opt/paperscout`       | `/opt/paperscout`                 |
 | Variable | `DEPLOY_BRANCH`  | `main`                  | `develop`                         |
-| Variable | `HEALTH_PORT`    | `9101`                  | `9102` (or whatever staging maps) |
+| Variable | `HEALTH_PORT`    | `9101`                  | `9101` (or whatever staging maps) |
 
 The workflow picks the environment from the branch (`refs/heads/main` → `production`, `refs/heads/develop` → `staging`), so values like `DEPLOY_PATH` and `HEALTH_PORT` are not hard-coded in the YAML.
 
@@ -184,11 +184,11 @@ curl -sf http://localhost:9101/health
 On the **staging** server (separate host or separate path on the same host; must match the `staging` environment's `DEPLOY_PATH` and expose `/health` on `HEALTH_PORT`):
 
 ```bash
-git clone -b develop https://github.com/cppalliance/paperscout.git /opt/paperscout-staging
-cd /opt/paperscout-staging
+git clone -b develop https://github.com/cppalliance/paperscout.git /opt/paperscout
+cd /opt/paperscout
 cp .env.example .env   # use staging credentials / DB / Slack app as appropriate
 docker compose up -d --build
-curl -sf http://localhost:9102/health
+curl -sf http://localhost:9101/health
 ```
 
 See [`deploy/SERVER_SETUP.md`](deploy/SERVER_SETUP.md) for the full Ubuntu 22.04 provisioning guide, and [`.github/workflows/cd.yml`](.github/workflows/cd.yml) for the CD pipeline.
@@ -444,6 +444,7 @@ The `.github/workflows/cd.yml` workflow runs on push to `main` or `develop` (and
 1. **Test** — single Python 3.12 pytest run as a gate (re-uses the same coverage threshold as CI).
 2. **Deploy** — single environment-driven job:
    - Selects the **GitHub Environment** from the branch (`main` → `production`, `develop` → `staging`).
+   - **Validates** Environment variables `DEPLOY_PATH`, `DEPLOY_BRANCH`, and **`HEALTH_PORT`** are non-empty (missing `HEALTH_PORT` produces an invalid health URL and fails the job immediately with an actionable error).
    - SSHes using the environment-scoped secrets (`SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`, optional `SERVER_PORT`).
    - Reads per-environment **variables** (`DEPLOY_PATH`, `DEPLOY_BRANCH`, `HEALTH_PORT`) so the same workflow targets prod or staging without code changes.
    - Runs `git fetch` + `git checkout` + `git pull --ff-only` against `DEPLOY_BRANCH` to keep deploys deterministic, then `docker compose up -d --build paperscout`.

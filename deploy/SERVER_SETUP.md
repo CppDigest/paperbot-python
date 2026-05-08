@@ -231,7 +231,7 @@ docker compose logs -f paperscout
 If you use a **separate** staging deployment (second clone path and GitHub Environment `staging`), typical placeholders are:
 
 - TLS / DNS: `sudo certbot --nginx -d staging.example.org` (replace with your real staging hostname when provisioning).
-- Health check on the staging machine after mapping ports (see README CD table): `curl -sf http://localhost:9102/health` — use whatever port your staging compose publishes for health instead of `9102` if different.
+- Health check on the staging machine after mapping ports (see README CD table): `curl -sf http://localhost:9101/health`.
 - Slack **Request URL** when nginx proxies under `/paperscout/`: `https://staging.example.org/paperscout/slack/events`.
 
 ---

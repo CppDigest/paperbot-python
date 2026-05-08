@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Documentation: deployment URLs (Slack Request URL behind nginx `/paperscout/`), clone URL in server setup, staging-style placeholders.
 - `db-backup.yml`: matrix parallel backups for `staging` / `production` using environment-level SSH secrets; uploads under `gs://insights-db-backups/paperscout/<environment>/` with unique temp files and object keys (UTC timestamp + `run_id` + `run_attempt` + environment); `EXIT` trap removes temp dump on failure. `SERVER_SETUP` restore examples updated (`--no-owner`, listing/copy by object name).
+- `cd.yml`: validate `DEPLOY_PATH`, `DEPLOY_BRANCH`, and `HEALTH_PORT` GitHub Environment variables before SSH so missing `HEALTH_PORT` fails with a clear error instead of curling `http://localhost:/health`.
 
 ## [0.1.0] - 2026-05-05
 
