@@ -14,7 +14,14 @@ from .config import settings
 from .db import init_db, init_pool
 from .health import start_health_server
 from .monitor import Scheduler
-from .scout import MessageQueue, create_app, notify_channel, notify_users, register_handlers
+from .scout import (
+    MessageQueue,
+    create_app,
+    enqueue_startup_status,
+    notify_channel,
+    notify_users,
+    register_handlers,
+)
 from .sources import ISOProber, WG21Index
 from .storage import ProbeState, UserWatchlist
 
@@ -130,6 +137,8 @@ async def _async_main() -> None:
         daemon=True,
     )
     bolt_thread.start()
+
+    enqueue_startup_status(mq, state, paper_count_fn)
 
     await scheduler.run_forever()
 

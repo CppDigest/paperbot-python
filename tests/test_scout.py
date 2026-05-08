@@ -19,6 +19,8 @@ from paperscout.scout import (
     _paper_link,
     _reply_opts,
     _show_watchlist,
+    enqueue_startup_status,
+    format_status_message,
     notify_channel,
     notify_users,
     register_handlers,
@@ -481,6 +483,35 @@ class TestHandleStatus:
             _handle_status(state, lambda: 100, say, {})
         text = say.call_args[1]["text"]
         assert "100" in text and "never" not in text
+
+
+class TestFormatStatusMessage:
+    def test_matches_handle_status_output(self, fake_pool):
+        state = ProbeState(fake_pool)
+        say = MagicMock()
+        with patch("paperscout.scout.settings", _make_settings()):
+            expected = format_status_message(state, lambda: 42)
+            _handle_status(state, lambda: 42, say, {})
+        assert say.call_args[1]["text"] == expected
+
+
+class TestEnqueueStartupStatus:
+    def test_enqueues_when_channel_configured(self, fake_pool):
+        mq = MagicMock()
+        state = ProbeState(fake_pool)
+        with patch("paperscout.scout.settings", _make_settings(channel="C-alerts")):
+            enqueue_startup_status(mq, state, lambda: 7)
+        mq.enqueue.assert_called_once()
+        assert mq.enqueue.call_args[0][0] == "C-alerts"
+        assert "Paperscout Status" in mq.enqueue.call_args[0][1]
+        assert "7" in mq.enqueue.call_args[0][1]
+
+    def test_skips_when_no_channel(self, fake_pool):
+        mq = MagicMock()
+        state = ProbeState(fake_pool)
+        with patch("paperscout.scout.settings", _make_settings(channel="")):
+            enqueue_startup_status(mq, state, lambda: 1)
+        mq.enqueue.assert_not_called()
 
 
 # ── register_handlers ─────────────────────────────────────────────────────────

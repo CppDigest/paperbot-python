@@ -440,8 +440,8 @@ def _show_watchlist(
         )
 
 
-def _handle_status(state: ProbeState, paper_count_fn, say, reply_opts: dict) -> None:
-    """Post loaded paper count, last poll, probe settings."""
+def format_status_message(state: ProbeState, paper_count_fn) -> str:
+    """Mrkdwn body for the interactive ``status`` command and startup channel post."""
     from datetime import datetime as _dt
     from datetime import timezone as _tz
 
@@ -449,19 +449,33 @@ def _handle_status(state: ProbeState, paper_count_fn, say, reply_opts: dict) -> 
     last_str = (
         _dt.fromtimestamp(last, tz=_tz.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if last else "never"
     )
-    say(
-        text=(
-            f"*Paperscout Status*\n"
-            f"• Papers loaded: {paper_count_fn():,}\n"
-            f"• Last poll: {last_str}\n"
-            f"• Poll interval: {settings.poll_interval_minutes} min\n"
-            f"• Discovered via probe: {len(state.get_all_discovered())}\n"
-            f"• ISO probing: {'enabled' if settings.enable_iso_probe else 'disabled'}\n"
-            f"• Alert window: {settings.alert_modified_hours}h\n"
-            f"• Cold cycle: 1/{settings.cold_cycle_divisor}"
-        ),
-        **reply_opts,
+    return (
+        f"*Paperscout Status*\n"
+        f"• Papers loaded: {paper_count_fn():,}\n"
+        f"• Last poll: {last_str}\n"
+        f"• Poll interval: {settings.poll_interval_minutes} min\n"
+        f"• Discovered via probe: {len(state.get_all_discovered())}\n"
+        f"• ISO probing: {'enabled' if settings.enable_iso_probe else 'disabled'}\n"
+        f"• Alert window: {settings.alert_modified_hours}h\n"
+        f"• Cold cycle: 1/{settings.cold_cycle_divisor}"
     )
+
+
+def _handle_status(state: ProbeState, paper_count_fn, say, reply_opts: dict) -> None:
+    """Post loaded paper count, last poll, probe settings."""
+    say(text=format_status_message(state, paper_count_fn), **reply_opts)
+
+
+def enqueue_startup_status(
+    mq: MessageQueue,
+    state: ProbeState,
+    paper_count_fn,
+) -> None:
+    """Post *status* summary to ``NOTIFICATION_CHANNEL`` once at process start."""
+    channel = settings.notification_channel
+    if not channel:
+        return
+    mq.enqueue(channel, format_status_message(state, paper_count_fn))
 
 
 def _handle_version(say, reply_opts: dict) -> None:
