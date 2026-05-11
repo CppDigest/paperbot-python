@@ -227,6 +227,7 @@ def make_test_settings(**overrides) -> Settings:
         http_concurrency=5,
         http_timeout_seconds=5,
         http_use_http2=False,
+        wg21_index_timeout_s=30.0,
         notification_channel="",
         notify_on_frontier_hit=True,
         notify_on_any_draft=True,

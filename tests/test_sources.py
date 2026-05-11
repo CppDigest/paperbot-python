@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import date, datetime, timedelta, timezone
 from email.utils import format_datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -147,6 +148,40 @@ class TestWG21Index:
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             result = await index._download()
         assert result is None
+
+    async def test_download_uses_wg21_index_timeout_from_settings(self, fake_pool):
+        cfg = make_test_settings(wg21_index_timeout_s=42.0)
+        index = WG21Index(fake_pool, cfg=cfg)
+        mock_resp = _make_response(200, json_data=SAMPLE_INDEX_DATA)
+        mock_client = _make_async_client(get_resp=mock_resp)
+        with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            await index._download()
+        mock_cls.assert_called_once()
+        arg_timeout = mock_cls.call_args.kwargs["timeout"]
+        assert isinstance(arg_timeout, httpx.Timeout)
+        assert arg_timeout == httpx.Timeout(42.0)
+
+    async def test_refresh_timeout_then_stale_fallback(self, fake_pool, caplog):
+        cfg = make_test_settings()
+        index = WG21Index(fake_pool, cfg=cfg)
+        index._cache.write(SAMPLE_INDEX_DATA)
+        index._cache.ttl_seconds = 0
+
+        req = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ReadTimeout("timed out", request=req))
+
+        with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            with caplog.at_level(logging.WARNING, logger="paperscout.sources"):
+                papers = await index.refresh()
+
+        assert "P2300R10" in papers
+        assert "failure_category=TIMEOUT" in caplog.text
+        assert "INDEX-STALE-FALLBACK" in caplog.text
 
     def test_parse_and_index(self, fake_pool):
         index = WG21Index(fake_pool)

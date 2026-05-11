@@ -100,7 +100,7 @@ async def _async_main() -> None:
 
     state = ProbeState(pool)
     user_watchlist = UserWatchlist(pool)
-    index = WG21Index(pool)
+    index = WG21Index(pool, cfg=settings)
     prober = ISOProber(index, state, user_watchlist)
     app = create_app()
     mq = MessageQueue(app)

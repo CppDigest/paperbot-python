@@ -31,8 +31,9 @@ WG21_INDEX_URL = "https://wg21.link/index.json"
 class WG21Index:
     """Fetch, cache, and parse the wg21.link paper index."""
 
-    def __init__(self, pool):
-        self._cache = PaperCache(pool, ttl_hours=settings.cache_ttl_hours)
+    def __init__(self, pool, cfg: Settings | None = None):
+        self._cfg = cfg or settings
+        self._cache = PaperCache(pool, ttl_hours=self._cfg.cache_ttl_hours)
         self.papers: dict[str, Paper] = {}
         self._max_rev: dict[int, int] = {}  # P-number -> highest revision
         self._max_p: int = 0  # absolute highest P-number
@@ -55,7 +56,10 @@ class WG21Index:
 
         stale = self._cache.read()
         if stale is not None:
-            log.warning("Using stale cache (%d entries)", len(stale))
+            log.warning(
+                "INDEX-STALE-FALLBACK  entries=%d  (download failed; using persisted cache)",
+                len(stale),
+            )
             self.papers = self._parse_and_index(stale)
             return self.papers
 
@@ -63,10 +67,11 @@ class WG21Index:
         return self.papers
 
     async def _download(self) -> dict | None:
+        timeout = httpx.Timeout(self._cfg.wg21_index_timeout_s)
         try:
             async with httpx.AsyncClient(
-                http2=settings.http_use_http2,
-                timeout=30.0,
+                http2=self._cfg.http_use_http2,
+                timeout=timeout,
                 follow_redirects=True,
             ) as client:
                 resp = await client.get(WG21_INDEX_URL)
@@ -76,6 +81,13 @@ class WG21Index:
                     return data
                 log.warning("Index response is not a dict")
                 return None
+        except httpx.TimeoutException as exc:
+            log.warning(
+                "INDEX-FETCH  failure_category=TIMEOUT  url=%s  %s",
+                WG21_INDEX_URL,
+                exc,
+            )
+            return None
         except (httpx.HTTPError, ValueError) as exc:
             log.error("Failed to download index: %s", exc)
             return None
