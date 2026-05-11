@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     http_concurrency: int = 20
     http_timeout_seconds: int = 10
     http_use_http2: bool = True
+    # Dedicated timeout for wg21.link/index.json (independent of ISO probe HEAD timeouts).
+    wg21_index_timeout_s: float = Field(default=30.0, ge=0.1)
 
     # -- Notifications --
     notification_channel: str = ""
