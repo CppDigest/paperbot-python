@@ -330,7 +330,7 @@ class TestUserWatchlist:
         assert wl.matches_for_users([paper], []) == {}
 
     def test_matches_for_users_probe_hit_author(self, fake_pool):
-        from paperscout.sources import ProbeHit
+        from paperscout.models import ProbeHit
 
         wl = UserWatchlist(fake_pool)
         wl.add("U1", "niebler")
@@ -349,7 +349,7 @@ class TestUserWatchlist:
         assert len(result["U1"].probe_hits) == 1
 
     def test_matches_for_users_probe_hit_paper_number(self, fake_pool):
-        from paperscout.sources import ProbeHit
+        from paperscout.models import ProbeHit
 
         wl = UserWatchlist(fake_pool)
         wl.add("U1", "9999")

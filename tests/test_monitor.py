@@ -8,15 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from paperscout.models import Paper
+from paperscout.models import Paper, PerUserMatches, ProbeHit
 from paperscout.monitor import (
     DiffResult,
-    PerUserMatches,
     PollResult,
     Scheduler,
     diff_snapshots,
 )
-from paperscout.sources import ISOProber, ProbeHit, WG21Index
+from paperscout.sources import ISOProber, WG21Index
 from paperscout.storage import ProbeState, UserWatchlist
 from tests.conftest import make_test_settings
 

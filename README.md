@@ -316,9 +316,9 @@ paperscout/
   src/paperscout/
     __main__.py     Entry point; wires together all components
     config.py       All settings via pydantic-settings
-    models.py       Paper dataclass, PaperPrefix/PaperType/FileExt enums
+    models.py       Paper, Tier, ProbeHit, PerUserMatches; PaperPrefix/PaperType/FileExt enums
     sources.py      WG21Index (PaperCache-backed), ISOProber, open-std.org scraper
-    monitor.py      Scheduler, diff engine, PerUserMatches, PollResult
+    monitor.py      Scheduler, diff engine, PollResult
     scout.py        Slack Bolt app, MessageQueue, notify_channel, notify_users
     storage.py      PaperCache, ProbeState, UserWatchlist (all PostgreSQL-backed)
     db.py           ThreadedConnectionPool init and schema DDL

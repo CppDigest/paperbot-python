@@ -10,10 +10,10 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
+from .models import PerUserMatches
+
 if TYPE_CHECKING:
     from psycopg2.pool import ThreadedConnectionPool
-
-    from .monitor import PerUserMatches
 
 log = logging.getLogger(__name__)
 
@@ -341,8 +341,6 @@ class UserWatchlist:
         probe_hits: list,  # list[ProbeHit]
     ) -> dict[str, PerUserMatches]:
         """Users with at least one author or paper-number match in this poll."""
-        from .monitor import PerUserMatches  # local import to avoid circular
-
         all_entries = self._get_all_entries()
         if not all_entries:
             return {}

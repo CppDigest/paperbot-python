@@ -12,9 +12,8 @@ from slack_bolt import App
 from slack_sdk.errors import SlackApiError
 
 from .config import settings
-from .models import Paper
+from .models import Paper, Tier
 from .monitor import PollResult
-from .sources import Tier
 from .storage import ProbeState, UserWatchlist
 
 log = logging.getLogger(__name__)

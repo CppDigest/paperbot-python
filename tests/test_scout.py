@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-from paperscout.models import Paper
-from paperscout.monitor import DiffResult, DPTransition, PerUserMatches, PollResult
+from paperscout.models import Paper, PerUserMatches, ProbeHit
+from paperscout.monitor import DiffResult, DPTransition, PollResult
 from paperscout.scout import (
     _batch_lines,
     _fmt_lm,
@@ -25,7 +25,6 @@ from paperscout.scout import (
     notify_users,
     register_handlers,
 )
-from paperscout.sources import ProbeHit
 from paperscout.storage import ProbeState, UserWatchlist
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
