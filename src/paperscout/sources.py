@@ -7,15 +7,14 @@ import logging
 import re
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from enum import Enum
 
 import httpx
 
 from .config import Settings, settings
-from .models import Paper
+from .models import Paper, ProbeHit, Tier
 from .storage import PaperCache, ProbeState, UserWatchlist
 
 log = logging.getLogger(__name__)
@@ -148,32 +147,6 @@ class WG21Index:
 # ═══════════════════════════════════════════════════════════════════════════
 
 ISO_BASE = "https://isocpp.org/files/papers/"
-
-
-class Tier(str, Enum):
-    """Probe priority bucket for isocpp HEAD requests."""
-
-    WATCHLIST = "watchlist"
-    FRONTIER = "frontier"
-    RECENT = "recent"
-    COLD = "cold"
-
-
-@dataclass(slots=True)
-class ProbeHit:
-    """Successful HEAD to an unpublished draft URL plus optional excerpt text."""
-
-    url: str
-    prefix: str
-    number: int
-    revision: int
-    extension: str
-    tier: Tier
-    front_text: str = ""
-    last_modified: datetime | None = field(default=None)
-    # True when Last-Modified is within alert_modified_hours of now,
-    # or when the header is absent (first-ever discovery of a new file).
-    is_recent: bool = False
 
 
 _TAG_RE = re.compile(r"<[^>]+>")

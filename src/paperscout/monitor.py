@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from .config import Settings, settings
-from .models import Paper
-from .sources import ISOProber, ProbeHit, WG21Index
+from .models import Paper, PerUserMatches, ProbeHit
+from .sources import ISOProber, WG21Index
 from .storage import ProbeState, UserWatchlist
 
 log = logging.getLogger(__name__)
@@ -51,17 +51,6 @@ def diff_snapshots(
 
     new_papers.sort(key=lambda p: p.date or "", reverse=True)
     return DiffResult(new_papers=new_papers, updated_papers=updated_papers)
-
-
-# ── Per-User Matches ─────────────────────────────────────────────────────────
-
-
-@dataclass
-class PerUserMatches:
-    """One user's watchlist hits: ``(paper|hit, 'author'|'paper')`` tuples."""
-
-    papers: list[tuple[Paper, str]] = field(default_factory=list)
-    probe_hits: list[tuple[ProbeHit, str]] = field(default_factory=list)
 
 
 # ── Poll Result ──────────────────────────────────────────────────────────────

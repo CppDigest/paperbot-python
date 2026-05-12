@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 
 
@@ -105,3 +106,40 @@ class Paper:
             github_url=entry.get("github_url", ""),
             issues=entry.get("issues", []) or [],
         )
+
+
+# ── ISO probe / watchlist match shapes (kept here to avoid storage↔monitor cycles) ─
+
+
+class Tier(str, Enum):
+    """Probe priority bucket for isocpp HEAD requests."""
+
+    WATCHLIST = "watchlist"
+    FRONTIER = "frontier"
+    RECENT = "recent"
+    COLD = "cold"
+
+
+@dataclass(slots=True)
+class ProbeHit:
+    """Successful HEAD to an unpublished draft URL plus optional excerpt text."""
+
+    url: str
+    prefix: str
+    number: int
+    revision: int
+    extension: str
+    tier: Tier
+    front_text: str = ""
+    last_modified: datetime | None = field(default=None)
+    # True when Last-Modified is within alert_modified_hours of now,
+    # or when the header is absent (first-ever discovery of a new file).
+    is_recent: bool = False
+
+
+@dataclass
+class PerUserMatches:
+    """One user's watchlist hits: ``(paper|hit, 'author'|'paper')`` tuples."""
+
+    papers: list[tuple[Paper, str]] = field(default_factory=list)
+    probe_hits: list[tuple[ProbeHit, str]] = field(default_factory=list)
