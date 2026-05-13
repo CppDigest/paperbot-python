@@ -249,11 +249,32 @@ class TestWG21Index:
         index._parse_and_index({"P0100R0": {"title": "T"}, "P0120R0": {"title": "T"}})
         assert index.effective_frontier(gap_threshold=50, extra_p_numbers={9999}) == 120
 
-    def test_latest_revision_known(self, populated_index):
-        assert populated_index.latest_revision(2300) == 10
+    def test_get_max_revision_known(self, populated_index):
+        assert populated_index.get_max_revision(2300) == 10
 
-    def test_latest_revision_unknown(self, populated_index):
-        assert populated_index.latest_revision(9999) is None
+    def test_get_max_revision_unknown(self, populated_index):
+        assert populated_index.get_max_revision(9999) is None
+
+    def test_get_papers_snapshot_and_known_ids_are_independent_snapshots(self, fake_pool):
+        from types import MappingProxyType
+
+        index = WG21Index(fake_pool)
+        index.papers = index._parse_and_index({"P1000R0": {"title": "T"}})
+        snap = index.get_papers_snapshot()
+        assert snap is not index.papers
+        assert isinstance(snap, MappingProxyType)
+        assert dict(snap) == dict(index.papers)
+        with pytest.raises(TypeError):
+            snap["X"] = Paper(id="X")
+
+        frozen = index.get_known_paper_ids()
+        assert isinstance(frozen, frozenset)
+        with pytest.raises(AttributeError):
+            frozen.add("X")
+
+        index.papers = index._parse_and_index({})
+        assert "P1000R0" in snap
+        assert snap["P1000R0"].id == "P1000R0"
 
     def test_parse_ignores_non_dict_entries(self, fake_pool):
         index = WG21Index(fake_pool)
@@ -667,7 +688,7 @@ class TestISOProberLists:
         assert any(r[3] == 200 and r[1] == "frontier" for r in urls)
 
     def test_build_hot_list_latest_none_uses_minus_one(self, fake_pool):
-        """Known hot numbers with latest_revision=None should start from R0."""
+        """Known hot numbers with get_max_revision None should start from R0."""
         prober, index, _ = self._make_prober(
             fake_pool,
             watchlist_nums=[9999],
@@ -677,7 +698,7 @@ class TestISOProberLists:
             hot_revision_depth=1,
             gap_max_rev=0,
         )
-        # Add 9999 to _max_rev so it's "known" but with latest_revision=None
+        # Add 9999 to _max_rev so it's "known" but with get_max_revision None
         index._max_rev = {9999: -1, 99: 0, 100: 0}
         index._sorted_p_nums = [99, 100, 9999]
         frontier = 100
@@ -688,7 +709,7 @@ class TestISOProberLists:
         assert 0 in revisions  # latest=-1 → start_rev=0
 
     def test_cold_known_skips_when_latest_none(self, fake_pool):
-        """cold_known paper with latest_revision=None should be silently skipped."""
+        """cold_known paper with get_max_revision None should be silently skipped."""
         prober, index, _ = self._make_prober(
             fake_pool,
             hot_lookback_months=0,
@@ -697,7 +718,7 @@ class TestISOProberLists:
             cold_cycle_divisor=1,
             cold_revision_depth=1,
         )
-        # 4 has _max_rev=-1 → latest_revision=None; 5 is normal
+        # 4 has _max_rev=-1 → get_max_revision None; 5 is normal
         # With no frontier window and no watchlist, both are cold_known
         index._max_rev = {4: -1, 5: 0}
         index._sorted_p_nums = [4, 5]
@@ -705,7 +726,7 @@ class TestISOProberLists:
         hot_known, hot_unknown = prober._hot_numbers(frontier)
         urls = prober._build_cold_slice(1, frontier, hot_known, hot_unknown)
         cold_nums = {r[3] for r in urls if r[1] == "cold"}
-        assert 4 not in cold_nums  # skipped because latest_revision=None
+        assert 4 not in cold_nums  # skipped because get_max_revision is None
         assert 5 in cold_nums  # normally probed
 
     async def test_probe_one_bad_last_modified_header(self, fake_pool):
