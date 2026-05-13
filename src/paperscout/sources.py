@@ -272,6 +272,7 @@ class ISOProber:
         t0 = time.monotonic()
 
         urls = self._build_probe_list()
+        known_ids = self.index.get_known_paper_ids()
         hot_count = sum(1 for u in urls if u[1] in (Tier.WATCHLIST, Tier.FRONTIER, Tier.RECENT))
         cold_count = sum(1 for u in urls if u[1] == Tier.COLD)
         slice_idx = (self._cycle - 1) % self.cfg.cold_cycle_divisor
@@ -294,7 +295,7 @@ class ISOProber:
             follow_redirects=True,
         ) as client:
             tasks = [
-                self._probe_one(client, sem, url, prefix, num, rev, ext, tier)
+                self._probe_one(client, sem, url, prefix, num, rev, ext, tier, known_ids)
                 for url, tier, prefix, num, rev, ext in urls
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -467,13 +468,15 @@ class ISOProber:
         rev: int,
         ext: str,
         tier: Tier,
+        known_ids: frozenset[str] | None = None,
     ) -> ProbeHit | None:
         if self.state.is_discovered(url):
             log.debug("SKIP  disc  %s", url)
             self._stats["skipped_discovered"] += 1
             return None
         paper_id = f"{prefix}{num:04d}R{rev}"
-        if paper_id in self.index.get_known_paper_ids():
+        ids = known_ids if known_ids is not None else self.index.get_known_paper_ids()
+        if paper_id in ids:
             log.debug("SKIP  idx   %s", paper_id)
             self._stats["skipped_in_index"] += 1
             return None
