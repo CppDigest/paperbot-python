@@ -6,10 +6,11 @@ import asyncio
 import logging
 import re
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from types import MappingProxyType
 
 import httpx
 
@@ -28,7 +29,15 @@ WG21_INDEX_URL = "https://wg21.link/index.json"
 
 
 class WG21Index:
-    """Fetch, cache, and parse the wg21.link paper index."""
+    """Fetch, cache, and parse the wg21.link paper index.
+
+    This class is designed for single-threaded async use. Do not access
+    from the Bolt daemon thread.
+
+    Likewise, do not access from the MessageQueue sender thread or any
+    other sync worker — ``refresh()`` mutates internal state and would
+    race with cross-thread reads on ``papers`` / ``_max_rev``.
+    """
 
     def __init__(self, pool, cfg: Settings | None = None):
         self._cfg = cfg or settings
@@ -132,14 +141,26 @@ class WG21Index:
                 return nums[i]
         return nums[0]
 
-    def latest_revision(self, number: int) -> int | None:
-        """Highest revision R*n* seen in the index for P-number *number*."""
-        rev = self._max_rev.get(number)
+    def get_max_revision(self, paper_number: int) -> int | None:
+        """Highest revision *R*n* seen in the index for P-number *paper_number*.
+
+        Returns ``None`` if the number is unknown or only a sentinel ``-1``
+        revision is recorded (treated as no published revision in the index).
+        """
+        rev = self._max_rev.get(paper_number)
         return rev if rev is not None and rev >= 0 else None
 
     def known_p_numbers(self) -> set[int]:
         """Set of all P-numbers present in the wg21.link index."""
         return set(self._max_rev.keys())
+
+    def get_known_paper_ids(self) -> frozenset[str]:
+        """Immutable snapshot of all paper ids currently in the index."""
+        return frozenset(self.papers)
+
+    def get_papers_snapshot(self) -> Mapping[str, Paper]:
+        """Read-only mapping copy of ``papers`` (not the live dict object)."""
+        return MappingProxyType(dict(self.papers))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -340,7 +361,7 @@ class ISOProber:
         # Recently active papers
         if self.cfg.hot_lookback_months > 0:
             cutoff = date.today() - timedelta(days=int(self.cfg.hot_lookback_months * 30.44))
-            for p in self.index.papers.values():
+            for p in self.index.get_papers_snapshot().values():
                 if p.prefix != "P" or p.number is None or not p.date or p.date == "unknown":
                     continue
                 try:
@@ -376,7 +397,7 @@ class ISOProber:
         # Known hot: probe D prefix, latest+1 .. latest+hot_revision_depth
         for num in sorted(hot_known):
             tier = self._tier_label(num, watchlist_set, frontier_range)
-            latest = self.index.latest_revision(num)
+            latest = self.index.get_max_revision(num)
             if latest is None:
                 latest = -1
             for rev in range(latest + 1, latest + self.cfg.hot_revision_depth + 1):
@@ -414,7 +435,7 @@ class ISOProber:
         for num in sorted(cold_known):
             if num % self.cfg.cold_cycle_divisor != slice_idx:
                 continue
-            latest = self.index.latest_revision(num)
+            latest = self.index.get_max_revision(num)
             if latest is None:
                 continue
             for rev in range(latest + 1, latest + self.cfg.cold_revision_depth + 1):
@@ -452,7 +473,7 @@ class ISOProber:
             self._stats["skipped_discovered"] += 1
             return None
         paper_id = f"{prefix}{num:04d}R{rev}"
-        if paper_id in self.index.papers:
+        if paper_id in self.index.get_known_paper_ids():
             log.debug("SKIP  idx   %s", paper_id)
             self._stats["skipped_in_index"] += 1
             return None
