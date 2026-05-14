@@ -80,6 +80,10 @@ class Settings(BaseSettings):
 
     # -- Notifications --
     notification_channel: str = ""
+    # Slack channel ID for ops alerts (stale poll). Empty = disabled.
+    ops_alert_channel: str = ""
+    # Log a warning when MessageQueue depth reaches or exceeds this (unbounded queue).
+    mq_backpressure_threshold: int = Field(default=100, ge=1)
     notify_on_frontier_hit: bool = True
     notify_on_any_draft: bool = True
     # Alert when a D-paper we previously probed appears in the wg21.link index

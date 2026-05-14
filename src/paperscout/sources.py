@@ -15,6 +15,7 @@ from types import MappingProxyType
 import httpx
 
 from .config import Settings, settings
+from .errors import FailureCategory
 from .models import Paper, ProbeHit, Tier
 from .storage import PaperCache, ProbeState, UserWatchlist
 
@@ -91,13 +92,32 @@ class WG21Index:
                 return None
         except httpx.TimeoutException as exc:
             log.warning(
-                "INDEX-FETCH  failure_category=TIMEOUT  url=%s  %s",
+                "INDEX-FETCH  failure_category=%s  url=%s  %s",
+                FailureCategory.TIMEOUT.value,
                 WG21_INDEX_URL,
                 exc,
             )
             return None
+        except httpx.HTTPStatusError as exc:
+            cat = (
+                FailureCategory.RATE_LIMIT
+                if exc.response.status_code == 429
+                else FailureCategory.NETWORK
+            )
+            log.error(
+                "INDEX-FETCH  failure_category=%s  url=%s  status=%d",
+                cat.value,
+                WG21_INDEX_URL,
+                exc.response.status_code,
+            )
+            return None
         except (httpx.HTTPError, ValueError) as exc:
-            log.error("Failed to download index: %s", exc)
+            log.error(
+                "INDEX-FETCH  failure_category=%s  url=%s  %s",
+                FailureCategory.NETWORK.value,
+                WG21_INDEX_URL,
+                exc,
+            )
             return None
 
     def _parse_and_index(self, raw: dict) -> dict[str, Paper]:
@@ -490,7 +510,17 @@ class ISOProber:
                     if _attempt < _max_retries - 1:
                         await asyncio.sleep(0.5 * (2**_attempt))
                         continue
-                    log.debug("ERR   %s  %s (after %d attempts)", url, exc, _max_retries)
+                    cat = (
+                        FailureCategory.TIMEOUT
+                        if isinstance(exc, httpx.TimeoutException)
+                        else FailureCategory.NETWORK
+                    )
+                    log.debug(
+                        "PROBE-ERR  failure_category=%s  url=%s  %s",
+                        cat.value,
+                        url,
+                        exc,
+                    )
                     self._stats["error"] += 1
                     return None
             else:

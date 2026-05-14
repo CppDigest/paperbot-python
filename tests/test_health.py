@@ -29,6 +29,27 @@ class _FakeState:
 
 
 @pytest.fixture()
+def health_url_with_extras():
+    port = _find_free_port()
+    launch = datetime(2026, 3, 16, 10, 0, 0, tzinfo=timezone.utc)
+    state = _FakeState(last_poll=1742119200.0, discovered={"u1": 1})
+    server = start_health_server(
+        port,
+        launch,
+        state,
+        lambda: 42,
+        extra_fields_fn=lambda: {
+            "last_successful_poll": "2026-03-16T12:00:00+00:00",
+            "probe_hit_rate": 0.5,
+            "mq_depth": 3,
+            "db_pool": {"max": 10, "in_use": 1, "available": 9},
+        },
+    )
+    yield f"http://127.0.0.1:{port}"
+    server.shutdown()
+
+
+@pytest.fixture()
 def health_url():
     port = _find_free_port()
     launch = datetime(2026, 3, 16, 10, 0, 0, tzinfo=timezone.utc)
@@ -81,3 +102,12 @@ class TestHealthEndpoint:
             assert data["iso_probe_enabled"] is True
         finally:
             cfg.settings.enable_iso_probe = original
+
+    def test_health_extra_fields_merged(self, health_url_with_extras):
+        data = json.loads(urllib.request.urlopen(f"{health_url_with_extras}/health").read())
+        assert "version" in data
+        assert "last_successful_poll" in data
+        assert data["last_successful_poll"] == "2026-03-16T12:00:00+00:00"
+        assert data["probe_hit_rate"] == 0.5
+        assert data["mq_depth"] == 3
+        assert data["db_pool"] == {"max": 10, "in_use": 1, "available": 9}
