@@ -50,9 +50,22 @@ class MessageQueue:
         self._thread.start()
         log.info("MessageQueue  started")
 
+    def depth(self) -> int:
+        """Approximate number of messages waiting to be sent (see ``queue.Queue.qsize``)."""
+        return self._q.qsize()
+
     def enqueue(self, channel: str, text: str, **kwargs) -> None:
         """Queue a ``chat.postMessage`` for *channel* (or user id for DMs)."""
+        from .config import settings
+
         self._q.put((channel, text, kwargs))
+        depth = self._q.qsize()
+        if depth >= settings.mq_backpressure_threshold:
+            log.warning(
+                "MQ-BACKPRESSURE  depth=%d  threshold=%d",
+                depth,
+                settings.mq_backpressure_threshold,
+            )
 
     def _run(self) -> None:
         while True:

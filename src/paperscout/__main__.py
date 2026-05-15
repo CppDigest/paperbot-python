@@ -113,13 +113,46 @@ async def _async_main() -> None:
         notify_channel(app, result, mq)
         notify_users(app, result, mq)
 
+    def _ops_alert(msg: str) -> None:
+        if settings.ops_alert_channel:
+            mq.enqueue(
+                settings.ops_alert_channel,
+                f":rotating_light: PaperScout alert: {msg}",
+            )
+
+    def _pool_status(p) -> dict:
+        """Best-effort pool stats (psycopg2 ThreadedConnectionPool uses private attrs)."""
+        status: dict = {"max": getattr(p, "maxconn", None)}
+        try:
+            status["in_use"] = len(p._used)
+            status["available"] = len(p._pool)
+        except AttributeError:
+            status["in_use"] = None
+            status["available"] = None
+        return status
+
     scheduler = Scheduler(
         index=index,
         prober=prober,
         user_watchlist=user_watchlist,
         state=state,
         notify_callback=_on_poll_result,
+        ops_alert_fn=_ops_alert,
     )
+
+    def _extra_health_fields() -> dict:
+        lsp = scheduler._last_successful_poll
+        s = scheduler._last_probe_stats
+        total = sum(s.get(k, 0) for k in ("hit_recent", "hit_old", "hit_no_lm", "miss", "error"))
+        hit_rate = (s.get("hit_recent", 0) + s.get("hit_old", 0)) / total if total > 0 else None
+        return {
+            "last_successful_poll": (
+                datetime.fromtimestamp(lsp, tz=timezone.utc).isoformat() if lsp else None
+            ),
+            "probe_hit_rate": hit_rate,
+            "mq_depth": mq.depth(),
+            "db_pool": _pool_status(pool),
+        }
 
     register_handlers(app, user_watchlist, state, paper_count_fn, launch_time)
 
@@ -129,6 +162,7 @@ async def _async_main() -> None:
         state,
         paper_count_fn,
         bind_host=settings.health_bind_host,
+        extra_fields_fn=_extra_health_fields,
     )
     log.info("Starting Slack Bolt app on port %d", settings.port)
     bolt_thread = threading.Thread(

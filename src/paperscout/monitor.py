@@ -5,10 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+import httpx
+
 from .config import Settings, settings
+from .errors import FailureCategory
 from .models import Paper, PerUserMatches, ProbeHit
 from .sources import ISOProber, WG21Index
 from .storage import ProbeState, UserWatchlist
@@ -96,6 +100,7 @@ class Scheduler:
         state: ProbeState,
         cfg: Settings | None = None,
         notify_callback=None,
+        ops_alert_fn: Callable[[str], None] | None = None,
     ):
         self.index = index
         self.prober = prober
@@ -103,9 +108,13 @@ class Scheduler:
         self.state = state
         self.cfg = cfg or settings
         self.notify_callback = notify_callback
+        self.ops_alert_fn = ops_alert_fn
         self._previous_papers: dict[str, Paper] = {}
         self._seeded = False
         self._poll_count = 0
+        self._last_successful_poll: float | None = None
+        self._last_probe_stats: dict[str, int] = {}
+        self._last_ops_alert: float | None = None
 
     async def seed(self) -> None:
         """First-run: gather all current papers from all sources without notifying."""
@@ -140,6 +149,8 @@ class Scheduler:
 
         if not self._seeded:
             await self.seed()
+            self._last_successful_poll = time.time()
+            self._last_probe_stats = dict(self.prober._stats)
             return PollResult(
                 diff=DiffResult(new_papers=[], updated_papers=[]),
                 probe_hits=[],
@@ -256,6 +267,8 @@ class Scheduler:
             len(dp_transitions),
             len(per_user_matches),
         )
+        self._last_successful_poll = time.time()
+        self._last_probe_stats = dict(self.prober._stats)
         return result
 
     async def run_forever(self) -> None:
@@ -269,13 +282,65 @@ class Scheduler:
             self.cfg.enable_iso_probe,
             self.cfg.enable_bulk_wg21,
         )
+        run_started_wall = time.time()
         while True:
             t0 = time.monotonic()
             try:
                 await self.poll_once()
+            except httpx.TimeoutException as exc:
+                log.error(
+                    "POLL-ERROR  failure_category=%s  poll=%d  %s",
+                    FailureCategory.TIMEOUT.value,
+                    self._poll_count,
+                    exc,
+                )
+            except httpx.HTTPStatusError as exc:
+                cat = (
+                    FailureCategory.RATE_LIMIT
+                    if exc.response.status_code == 429
+                    else FailureCategory.NETWORK
+                )
+                log.error(
+                    "POLL-ERROR  failure_category=%s  poll=%d  status=%d",
+                    cat.value,
+                    self._poll_count,
+                    exc.response.status_code,
+                )
+            except httpx.HTTPError as exc:
+                log.error(
+                    "POLL-ERROR  failure_category=%s  poll=%d  %s",
+                    FailureCategory.NETWORK.value,
+                    self._poll_count,
+                    exc,
+                )
             except Exception:
-                log.exception("POLL-ERROR  poll=%d", self._poll_count)
+                log.exception(
+                    "POLL-ERROR  failure_category=%s  poll=%d",
+                    FailureCategory.UNKNOWN.value,
+                    self._poll_count,
+                )
             elapsed = time.monotonic() - t0
+
+            if self.ops_alert_fn:
+                alert_threshold = 2 * interval
+                now_wall = time.time()
+                now_m = time.monotonic()
+                if self._last_successful_poll is not None:
+                    stale = now_wall - self._last_successful_poll
+                else:
+                    # Never completed a poll: treat as stale from loop start.
+                    stale = now_wall - run_started_wall
+                if stale > alert_threshold and (
+                    self._last_ops_alert is None or (now_m - self._last_ops_alert) > interval
+                ):
+                    try:
+                        self.ops_alert_fn(
+                            f"No successful poll in {stale / 60:.0f}min "
+                            f"(threshold={2 * self.cfg.poll_interval_minutes}min)"
+                        )
+                    except Exception:
+                        log.exception("OPS-ALERT  stale-poll notification failed")
+                    self._last_ops_alert = now_m
 
             sleep_for = max(interval - elapsed, cooldown)
             log.info(

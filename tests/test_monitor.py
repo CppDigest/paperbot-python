@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from paperscout.models import Paper, PerUserMatches, ProbeHit
@@ -165,6 +167,7 @@ def _make_scheduler(fake_pool, **cfg_overrides):
     index.papers = {}
     prober = MagicMock(spec=ISOProber)
     prober.run_cycle = AsyncMock(return_value=[])
+    prober._stats = {}
     user_watchlist = MagicMock(spec=UserWatchlist)
     user_watchlist.matches_for_users.return_value = {}
     state = ProbeState(fake_pool)
@@ -398,6 +401,44 @@ class TestScheduler:
         with patch("asyncio.sleep", AsyncMock()):
             with pytest.raises(asyncio.CancelledError):
                 await scheduler.run_forever()
+        assert call_count == 2
+
+    async def test_run_forever_emits_timeout_failure_category(self, fake_pool, caplog):
+        scheduler, _, _, _, _ = _make_scheduler(fake_pool, poll_interval_minutes=0)
+        call_count = 0
+
+        async def mock_poll_once():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise httpx.TimeoutException("boom", request=MagicMock())
+            raise asyncio.CancelledError()
+
+        scheduler.poll_once = mock_poll_once
+        with caplog.at_level(logging.ERROR, logger="paperscout.monitor"):
+            with patch("asyncio.sleep", AsyncMock()):
+                with pytest.raises(asyncio.CancelledError):
+                    await scheduler.run_forever()
+        assert "failure_category=TIMEOUT" in caplog.text
+        assert call_count == 2
+
+    async def test_run_forever_emits_network_failure_category(self, fake_pool, caplog):
+        scheduler, _, _, _, _ = _make_scheduler(fake_pool, poll_interval_minutes=0)
+        call_count = 0
+
+        async def mock_poll_once():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise httpx.ConnectError("no route", request=MagicMock())
+            raise asyncio.CancelledError()
+
+        scheduler.poll_once = mock_poll_once
+        with caplog.at_level(logging.ERROR, logger="paperscout.monitor"):
+            with patch("asyncio.sleep", AsyncMock()):
+                with pytest.raises(asyncio.CancelledError):
+                    await scheduler.run_forever()
+        assert "failure_category=NETWORK" in caplog.text
         assert call_count == 2
 
     async def test_run_forever_adaptive_sleep_normal_cycle(self, fake_pool):

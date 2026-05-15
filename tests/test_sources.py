@@ -139,15 +139,41 @@ class TestWG21Index:
             result = await index._download()
         assert result is None
 
-    async def test_download_http_error(self, fake_pool):
+    async def test_download_http_error(self, fake_pool, caplog):
         index = WG21Index(fake_pool)
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(side_effect=httpx.HTTPError("connect failed"))
         with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            result = await index._download()
+            with caplog.at_level(logging.ERROR, logger="paperscout.sources"):
+                result = await index._download()
         assert result is None
+        assert "failure_category=NETWORK" in caplog.text
+
+    async def test_download_http_status_429_emits_rate_limit(self, fake_pool, caplog):
+        index = WG21Index(fake_pool)
+        mock_resp = _make_response(429, json_data={})
+        mock_client = _make_async_client(get_resp=mock_resp)
+        with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            with caplog.at_level(logging.ERROR, logger="paperscout.sources"):
+                result = await index._download()
+        assert result is None
+        assert "failure_category=RATE_LIMIT" in caplog.text
+
+    async def test_download_http_status_500_emits_network(self, fake_pool, caplog):
+        index = WG21Index(fake_pool)
+        mock_resp = _make_response(500, json_data={})
+        mock_client = _make_async_client(get_resp=mock_resp)
+        with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            with caplog.at_level(logging.ERROR, logger="paperscout.sources"):
+                result = await index._download()
+        assert result is None
+        assert "failure_category=NETWORK" in caplog.text
 
     async def test_download_uses_wg21_index_timeout_from_settings(self, fake_pool):
         cfg = make_test_settings(wg21_index_timeout_s=42.0)

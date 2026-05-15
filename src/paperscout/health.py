@@ -20,6 +20,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
     launch_time: datetime
     paper_count_fn: Callable[[], int]
     state: object  # ProbeState — kept generic to avoid circular import
+    extra_fields_fn: Callable[[], dict]
 
     def do_GET(self) -> None:
         if self.path.rstrip("/") != "/health":
@@ -35,21 +36,27 @@ class _HealthHandler(BaseHTTPRequestHandler):
         get_disc = getattr(self.state, "get_all_discovered", lambda: {})
         discovered = get_disc()
 
-        body = json.dumps(
-            {
-                "version": __version__,
-                "uptime_seconds": int(uptime),
-                "launched_at": self.launch_time.isoformat(),
-                "papers_loaded": self.paper_count_fn(),
-                "last_poll": (
-                    datetime.fromtimestamp(last_poll, tz=timezone.utc).isoformat()
-                    if last_poll
-                    else None
-                ),
-                "discovered_via_probe": len(discovered),
-                "iso_probe_enabled": settings.enable_iso_probe,
-            }
-        ).encode()
+        base = {
+            "version": __version__,
+            "uptime_seconds": int(uptime),
+            "launched_at": self.launch_time.isoformat(),
+            "papers_loaded": self.paper_count_fn(),
+            "last_poll": (
+                datetime.fromtimestamp(last_poll, tz=timezone.utc).isoformat()
+                if last_poll
+                else None
+            ),
+            "discovered_via_probe": len(discovered),
+            "iso_probe_enabled": settings.enable_iso_probe,
+        }
+        try:
+            extra = self.extra_fields_fn()
+            if not isinstance(extra, dict):
+                extra = {}
+        except Exception:
+            log.exception("health: extra_fields_fn failed")
+            extra = {}
+        body = json.dumps({**base, **extra}).encode()
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -67,8 +74,11 @@ def start_health_server(
     state,
     paper_count_fn: Callable[[], int],
     bind_host: str = "127.0.0.1",
+    extra_fields_fn: Callable[[], dict] | None = None,
 ) -> HTTPServer:
     """Start the ``/health`` HTTP server on *bind_host*:*port* in a daemon thread."""
+
+    _extra = extra_fields_fn or (lambda: {})
 
     handler = type(
         "_BoundHealthHandler",
@@ -77,6 +87,7 @@ def start_health_server(
             "launch_time": launch_time,
             "paper_count_fn": staticmethod(paper_count_fn),
             "state": state,
+            "extra_fields_fn": staticmethod(_extra),
         },
     )
 
