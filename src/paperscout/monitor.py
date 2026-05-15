@@ -282,6 +282,7 @@ class Scheduler:
             self.cfg.enable_iso_probe,
             self.cfg.enable_bulk_wg21,
         )
+        run_started_wall = time.time()
         while True:
             t0 = time.monotonic()
             try:
@@ -320,17 +321,25 @@ class Scheduler:
                 )
             elapsed = time.monotonic() - t0
 
-            if self.ops_alert_fn and self._last_successful_poll is not None:
-                stale = time.time() - self._last_successful_poll
+            if self.ops_alert_fn:
                 alert_threshold = 2 * interval
+                now_wall = time.time()
                 now_m = time.monotonic()
+                if self._last_successful_poll is not None:
+                    stale = now_wall - self._last_successful_poll
+                else:
+                    # Never completed a poll: treat as stale from loop start.
+                    stale = now_wall - run_started_wall
                 if stale > alert_threshold and (
                     self._last_ops_alert is None or (now_m - self._last_ops_alert) > interval
                 ):
-                    self.ops_alert_fn(
-                        f"No successful poll in {stale / 60:.0f}min "
-                        f"(threshold={2 * self.cfg.poll_interval_minutes}min)"
-                    )
+                    try:
+                        self.ops_alert_fn(
+                            f"No successful poll in {stale / 60:.0f}min "
+                            f"(threshold={2 * self.cfg.poll_interval_minutes}min)"
+                        )
+                    except Exception:
+                        log.exception("OPS-ALERT  stale-poll notification failed")
                     self._last_ops_alert = now_m
 
             sleep_for = max(interval - elapsed, cooldown)
