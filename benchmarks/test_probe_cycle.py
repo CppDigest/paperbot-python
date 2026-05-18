@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from pathlib import Path
@@ -55,17 +56,17 @@ def _make_metrics() -> dict:
 def _build_mock_handler(
     metrics: dict,
     per_request_delay_sec: float,
-) -> Callable[[httpx.Request], httpx.Response]:
+) -> Callable[[httpx.Request], Awaitable[httpx.Response]]:
     lm_recent = datetime.now(timezone.utc) - timedelta(hours=2)
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    async def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         t0 = time.perf_counter()
         with metrics["lock"]:
             metrics["active"] += 1
             metrics["peak_concurrent"] = max(metrics["peak_concurrent"], metrics["active"])
         try:
-            time.sleep(per_request_delay_sec)
+            await asyncio.sleep(per_request_delay_sec)
             metrics["request_count"] += 1
             if request.method == "GET" and path.endswith((".pdf", ".html")):
                 return httpx.Response(200, text="<html><body>x</body></html>")
