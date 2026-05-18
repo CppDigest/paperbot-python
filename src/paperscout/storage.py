@@ -8,12 +8,14 @@ import re
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from .models import PerUserMatches
 
 if TYPE_CHECKING:
     from psycopg2.pool import ThreadedConnectionPool
+
+    from .models import Paper, ProbeHit
 
 log = logging.getLogger(__name__)
 
@@ -69,9 +71,9 @@ class PaperCache:
                 row = cur.fetchone()
         if row is None:
             return False
-        return (time.time() - row[0]) < self.ttl_seconds
+        return bool((time.time() - float(row[0])) < self.ttl_seconds)
 
-    def read(self) -> dict | None:
+    def read(self) -> dict[str, Any] | None:
         with _conn(self._pool) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -84,18 +86,23 @@ class PaperCache:
         data = row[0]
         if isinstance(data, str):
             try:
-                return json.loads(data)
+                parsed = json.loads(data)
+                if isinstance(parsed, dict):
+                    return cast(dict[str, Any], parsed)
+                return None
             except json.JSONDecodeError as exc:
                 log.warning("Failed to parse cached index JSON: %s", exc)
                 return None
-        return data  # psycopg2 returns JSONB as a Python dict already
+        if isinstance(data, dict):
+            return cast(dict[str, Any], data)
+        return None
 
-    def read_if_fresh(self) -> dict | None:
+    def read_if_fresh(self) -> dict[str, Any] | None:
         if self.is_fresh():
             return self.read()
         return None
 
-    def write(self, data: dict) -> None:
+    def write(self, data: dict[str, Any]) -> None:
         payload = json.dumps(data, ensure_ascii=False)
         with _conn(self._pool) as conn:
             with conn.cursor() as cur:
@@ -132,7 +139,7 @@ class ProbeState:
 
     # ── discovered ───────────────────────────────────────────────────────────
 
-    def get_all_discovered(self) -> dict[str, dict]:
+    def get_all_discovered(self) -> dict[str, dict[str, Any]]:
         """All discovered URLs (full table scan; prefer ``is_discovered`` for one URL)."""
         with _conn(self._pool) as conn:
             with conn.cursor() as cur:
@@ -161,7 +168,7 @@ class ProbeState:
                 )
                 return cur.fetchone() is not None
 
-    def discovered_info(self, url: str) -> dict | None:
+    def discovered_info(self, url: str) -> dict[str, Any] | None:
         with _conn(self._pool) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -237,7 +244,7 @@ class ProbeState:
         if misses < threshold:
             return False
         skip_cycles = min(multiplier ** (misses - threshold), max_skip)
-        return (cycle % skip_cycles) != 0
+        return bool((cycle % skip_cycles) != 0)
 
     # ── poll timestamp ────────────────────────────────────────────────────────
 
@@ -290,7 +297,7 @@ class UserWatchlist:
                     """,
                     (user_id, entry, etype),
                 )
-                return cur.rowcount > 0
+                return bool(cur.rowcount > 0)
 
     def remove(self, user_id: str, raw_entry: str) -> bool:
         """Remove an entry for *user_id*.  Returns True if it existed."""
@@ -301,7 +308,7 @@ class UserWatchlist:
                     "DELETE FROM user_watchlist WHERE slack_user_id = %s AND entry = %s",
                     (user_id, entry),
                 )
-                return cur.rowcount > 0
+                return bool(cur.rowcount > 0)
 
     def list_entries(self, user_id: str) -> list[tuple[str, str]]:
         """Return ``[(entry, entry_type), ...]`` for *user_id*, sorted."""
@@ -337,8 +344,8 @@ class UserWatchlist:
 
     def matches_for_users(
         self,
-        new_papers: list,  # list[Paper]
-        probe_hits: list,  # list[ProbeHit]
+        new_papers: list[Paper],
+        probe_hits: list[ProbeHit],
     ) -> dict[str, PerUserMatches]:
         """Users with at least one author or paper-number match in this poll."""
         all_entries = self._get_all_entries()
@@ -364,7 +371,7 @@ class UserWatchlist:
             authors = user_authors.get(uid, [])
             paper_nums = user_papers.get(uid, set())
 
-            matched_papers: list = []
+            matched_papers: list[tuple[Paper, str]] = []
             for paper in new_papers:
                 # Author match
                 if authors and paper.author:
@@ -376,7 +383,7 @@ class UserWatchlist:
                 if paper_nums and paper.number is not None and paper.number in paper_nums:
                     matched_papers.append((paper, "paper"))
 
-            matched_hits: list = []
+            matched_hits: list[tuple[ProbeHit, str]] = []
             for hit in probe_hits:
                 # Author match via front_text
                 if authors and hit.front_text:

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import httpx
 
 from .config import Settings, settings
-from .errors import FailureCategory
+from .errors import ConfigurationError, FailureCategory
 from .models import Paper, PerUserMatches, ProbeHit
 from .sources import ISOProber, WG21Index
 from .storage import ProbeState, UserWatchlist
@@ -287,6 +287,14 @@ class Scheduler:
             t0 = time.monotonic()
             try:
                 await self.poll_once()
+            except ConfigurationError as exc:
+                log.critical(
+                    "POLL-FATAL  failure_category=%s  poll=%d  %s",
+                    FailureCategory.CONFIGURATION.value,
+                    self._poll_count,
+                    exc,
+                )
+                return
             except httpx.TimeoutException as exc:
                 log.error(
                     "POLL-ERROR  failure_category=%s  poll=%d  %s",

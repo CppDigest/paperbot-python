@@ -8,6 +8,7 @@ import threading
 from collections.abc import Callable
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any, cast
 
 from . import __version__
 
@@ -33,7 +34,11 @@ class _HealthHandler(BaseHTTPRequestHandler):
         from .config import settings
 
         last_poll = getattr(self.state, "last_poll", None)
-        get_disc = getattr(self.state, "get_all_discovered", lambda: {})
+        get_disc: Callable[[], dict[str, Any]] = getattr(
+            self.state,
+            "get_all_discovered",
+            cast(Callable[[], dict[str, Any]], lambda: {}),
+        )
         discovered = get_disc()
 
         base = {

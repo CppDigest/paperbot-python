@@ -11,4 +11,9 @@ class FailureCategory(str, enum.Enum):
     RATE_LIMIT = "RATE_LIMIT"
     NETWORK = "NETWORK"
     TIMEOUT = "TIMEOUT"
+    CONFIGURATION = "CONFIGURATION"
     UNKNOWN = "UNKNOWN"
+
+
+class ConfigurationError(Exception):
+    """Permanent misconfiguration (credentials, required integration settings)."""

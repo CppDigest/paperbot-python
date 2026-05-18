@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 class PaperPrefix(str, Enum):
@@ -92,19 +96,54 @@ class Paper:
         return int(m.group(3)) if m else None
 
     @staticmethod
-    def from_index_entry(key: str, entry: dict) -> Paper:
+    def from_index_entry(key: str, entry: dict[str, Any]) -> Paper:
         """Build a ``Paper`` from a wg21.link index key and value dict."""
+        paper_type = PaperType.PAPER
+        if "type" in entry:
+            raw = entry["type"]
+            if isinstance(raw, str):
+                try:
+                    paper_type = PaperType(raw)
+                except ValueError:
+                    log.warning(
+                        "Unknown index paper type %r for key %s — defaulting to %s",
+                        raw,
+                        key,
+                        PaperType.PAPER.value,
+                    )
+            else:
+                log.warning(
+                    "Invalid index paper type %r (expected str) for key %s — defaulting to %s",
+                    raw,
+                    key,
+                    PaperType.PAPER.value,
+                )
+        author_val = entry.get("author", "")
+        submitter_val = entry.get("submitter", "")
+        author_s = author_val if isinstance(author_val, str) else ""
+        submitter_s = submitter_val if isinstance(submitter_val, str) else ""
+        issues_raw = entry.get("issues", []) or []
+        issues_list: list[str]
+        if isinstance(issues_raw, list):
+            issues_list = [str(x) for x in issues_raw]
+        else:
+            issues_list = []
+
+        def _s(field: str, default: str = "") -> str:
+            v = entry.get(field, default)
+            return v if isinstance(v, str) else default
+
         return Paper(
             id=key,
-            title=entry.get("title", ""),
-            author=entry.get("author", "") or entry.get("submitter", ""),
-            date=entry.get("date", ""),
-            paper_type=PaperType(entry["type"]) if "type" in entry else PaperType.PAPER,
-            subgroup=entry.get("subgroup", ""),
-            url=entry.get("link", ""),
-            long_link=entry.get("long_link", ""),
-            github_url=entry.get("github_url", ""),
-            issues=entry.get("issues", []) or [],
+            title=_s("title"),
+            author=author_s or submitter_s,
+            date=_s("date"),
+            paper_type=paper_type,
+            subgroup=_s("subgroup"),
+            url=_s("link"),
+            long_link=_s("long_link"),
+            github_url=_s("github_url"),
+            issues=issues_list,
         )
 
 
