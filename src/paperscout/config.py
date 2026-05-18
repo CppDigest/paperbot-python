@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .errors import ConfigurationError
 
 
 class Settings(BaseSettings):
@@ -100,6 +103,21 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # Days of log files to keep (one file per day).
     log_retention_days: int = 7
+
+    @model_validator(mode="after")
+    def _require_slack_credentials_unless_testing(self) -> Settings:
+        """Slack tokens must be set for real runs; pytest sets ``_PAPERSCOUT_TESTING=1``."""
+        if os.environ.get("_PAPERSCOUT_TESTING") == "1":
+            return self
+        if (
+            not (self.slack_bot_token or "").strip()
+            or not (self.slack_signing_secret or "").strip()
+        ):
+            raise ConfigurationError(
+                "Slack is not configured: SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET must be "
+                "set to non-empty values (see README / deployment docs)."
+            )
+        return self
 
 
 settings = Settings()

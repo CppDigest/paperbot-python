@@ -1,0 +1,5 @@
+{
+  "wall_seconds_median": 0.0243,
+  "regression_threshold_pct": 20,
+  "min_request_count": 6
+}

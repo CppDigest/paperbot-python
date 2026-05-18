@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import os
+
+# Tests import ``paperscout.config`` which instantiates ``Settings()`` at module load; keep Slack placeholders.
+os.environ.setdefault("_PAPERSCOUT_TESTING", "1")
+os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-test")
+os.environ.setdefault("SLACK_SIGNING_SECRET", "test-secret")
+
 import json as _json
 import tempfile
 from pathlib import Path

@@ -93,6 +93,16 @@ async def _async_main() -> None:
         log.error("DATABASE_URL is not set — cannot start")
         sys.exit(1)
 
+    if (
+        not (settings.slack_bot_token or "").strip()
+        or not (settings.slack_signing_secret or "").strip()
+    ):
+        log.error(
+            "Slack is not configured: SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET must be "
+            "non-empty — cannot start"
+        )
+        sys.exit(1)
+
     launch_time = datetime.now(timezone.utc)
 
     pool = init_pool(settings.database_url)

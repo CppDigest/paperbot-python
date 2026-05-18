@@ -13,20 +13,37 @@ target="${1:-help}"
 
 case "$target" in
   install)
-    "$PYTHON" -m pip install -e ".[dev]"
+    if command -v uv >/dev/null 2>&1; then
+      uv sync --extra dev
+    else
+      "$PYTHON" -m pip install -e ".[dev]"
+    fi
     ;;
 
   test)
-    "$PYTHON" -m pytest tests/ -v
+    if command -v uv >/dev/null 2>&1; then
+      uv run pytest tests/ -v
+    else
+      "$PYTHON" -m pytest tests/ -v
+    fi
     ;;
 
   cov)
-    "$PYTHON" -m pytest tests/ \
-      --cov=paperscout \
-      --cov-report=term-missing \
-      --cov-report=xml \
-      --cov-fail-under=90 \
-      -v
+    if command -v uv >/dev/null 2>&1; then
+      uv run pytest tests/ \
+        --cov=paperscout \
+        --cov-report=term-missing \
+        --cov-report=xml \
+        --cov-fail-under=90 \
+        -v
+    else
+      "$PYTHON" -m pytest tests/ \
+        --cov=paperscout \
+        --cov-report=term-missing \
+        --cov-report=xml \
+        --cov-fail-under=90 \
+        -v
+    fi
     ;;
 
   check)

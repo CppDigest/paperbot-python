@@ -22,13 +22,31 @@ Thank you for your interest in improving paperscout. This document describes how
 
 ## Local checks
 
-Install the package in editable mode with dev dependencies:
+Install **[uv](https://docs.astral.sh/uv/)** (recommended) and sync the locked dev environment from the repo root:
+
+```bash
+uv sync --extra dev
+```
+
+This installs the project and all dev tools from [`uv.lock`](uv.lock) (see **Dependency lockfile** below). Alternatively, with a classic venv:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate   # Windows Git Bash: source .venv/Scripts/activate
 pip install -e ".[dev]"
 ```
+
+### Dependency lockfile
+
+Runtime and dev dependencies are pinned in **`uv.lock`**, generated from [`pyproject.toml`](pyproject.toml). CI runs `uv lock --check` so the lockfile cannot drift.
+
+**To add or upgrade a dependency:**
+
+1. Edit [`pyproject.toml`](pyproject.toml) (`dependencies` or `[project.optional-dependencies] dev`).
+2. Regenerate the lockfile: `uv lock`
+3. Commit both `pyproject.toml` and `uv.lock`.
+
+**To verify locally before pushing:** `uv lock --check`
 
 ### Tests and coverage
 
@@ -37,18 +55,18 @@ pip install -e ".[dev]"
 # or: make check
 ```
 
-CI runs `pre-commit run --all-files` for pushes/PRs on configured branches (currently `main` and `develop`; see `.github/workflows/ci.yml`).
+CI uses **`uv sync --frozen --extra dev`** then **`uv run`** for tests and pre-commit (see `.github/workflows/ci.yml`).
 
 ### Lint and format (Ruff + pre-commit)
 
 We use **[pre-commit](https://pre-commit.com/)** with **[Ruff](https://docs.astral.sh/ruff/)** for linting and formatting.
 
 ```bash
-pre-commit install
-pre-commit run --all-files
+uv run pre-commit install
+uv run pre-commit run --all-files
 ```
 
-CI runs `pre-commit run --all-files` on every push and pull request (see the `lint` job in `.github/workflows/ci.yml`).
+CI runs `uv run pre-commit run --all-files` on every push and pull request (see the `lint` job in `.github/workflows/ci.yml`).
 
 ## Expectations for changes
 

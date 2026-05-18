@@ -183,6 +183,16 @@ def test_from_index_entry_standing_document_type():
     assert paper.paper_type == PaperType.STANDING_DOCUMENT
 
 
+def test_from_index_entry_unknown_type_defaults_to_paper(caplog):
+    entry = {"type": "something-new", "title": "Future taxonomy"}
+    with caplog.at_level("WARNING"):
+        paper = Paper.from_index_entry("P9999R0", entry)
+    assert paper.paper_type == PaperType.PAPER
+    assert paper.title == "Future taxonomy"
+    assert "something-new" in caplog.text
+    assert "P9999R0" in caplog.text
+
+
 # ── Paper dataclass defaults ──────────────────────────────────────────────────
 
 

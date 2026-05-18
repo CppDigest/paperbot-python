@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from paperscout.errors import ConfigurationError
 from paperscout.models import Paper, PerUserMatches, ProbeHit
 from paperscout.monitor import (
     DiffResult,
@@ -440,6 +441,19 @@ class TestScheduler:
                     await scheduler.run_forever()
         assert "failure_category=NETWORK" in caplog.text
         assert call_count == 2
+
+    async def test_run_forever_halts_on_configuration_error(self, fake_pool, caplog):
+        scheduler, _, _, _, _ = _make_scheduler(fake_pool, poll_interval_minutes=30)
+
+        async def mock_poll_once():
+            raise ConfigurationError("simulated credential failure")
+
+        scheduler.poll_once = mock_poll_once
+        with caplog.at_level(logging.CRITICAL, logger="paperscout.monitor"):
+            with patch("asyncio.sleep", AsyncMock()) as sleep_m:
+                await scheduler.run_forever()
+        sleep_m.assert_not_called()
+        assert "failure_category=CONFIGURATION" in caplog.text
 
     async def test_run_forever_adaptive_sleep_normal_cycle(self, fake_pool):
         scheduler, _, _, _, _ = _make_scheduler(
