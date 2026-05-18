@@ -12,7 +12,7 @@ COPY pyproject.toml uv.lock ./
 COPY src/ src/
 
 ENV UV_COMPILE_BYTECODE=1
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-editable
 
 
 FROM python:3.12-slim

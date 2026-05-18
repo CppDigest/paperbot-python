@@ -6,12 +6,12 @@ This document describes the **synthetic** probe-cycle benchmark under [`benchmar
 
 Each run executes `ISOProber.run_cycle()` with a small fixed index + watchlist (same shape as [`tests/test_sources.py`](../tests/test_sources.py) `TestISOProberRunCycle`). The mock server returns **200** with a recent `Last-Modified` header for every `HEAD`, and **200** HTML for `GET` when front text is fetched for recent hits (deterministic request counts for regression).
 
-| Metric | Meaning |
-|--------|---------|
-| Wall seconds | Total time for one `run_cycle()` |
-| Request count | Mock `HEAD` + `GET` calls |
-| Peak concurrent | Max in-flight requests (bounded by `http_concurrency`) |
-| Latency p50 / p95 / p99 | Per-request handler time in the mock |
+| Metric                  | Meaning                                                |
+| ----------------------- | ------------------------------------------------------ |
+| Wall seconds            | Total time for one `run_cycle()`                       |
+| Request count           | Mock `HEAD` + `GET` calls                              |
+| Peak concurrent         | Max in-flight requests (bounded by `http_concurrency`) |
+| Latency p50 / p95 / p99 | Per-request handler time in the mock                   |
 
 ## Baseline artifact
 
@@ -46,5 +46,5 @@ After an intentional performance change (or recalibrating mock delay defaults):
 
 1. Temporarily relax or remove the assertion, or run the harness in a scratch script.
 2. Record stable median-of-three wall times with default CLI options on `ubuntu-latest` or locally.
-3. Set `wall_seconds_median` in `baseline.json` to a value with modest slack (e.g. 8–15× the raw median) so CI host variance does not flake.
+3. Set `wall_seconds_median` in `baseline.json` to a value with modest slack (e.g. ~10–25% above the raw median) so CI host variance does not flake.
 4. Commit `baseline.json` with the PR that justifies the new envelope.

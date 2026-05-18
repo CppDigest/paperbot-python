@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import asyncio
 import logging
 import logging.handlers
@@ -28,7 +29,9 @@ from .storage import ProbeState, UserWatchlist
 log = logging.getLogger("paperscout")
 
 
-def _setup_logging(data_dir: Path, console_level: str = "INFO", retention_days: int = 7) -> None:
+def _setup_logging(
+    data_dir: Path, console_level: str = "INFO", retention_days: int = 7
+) -> None:
     """Console + daily rotating file logging; third-party loggers capped at WARNING."""
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -93,7 +96,7 @@ async def _async_main() -> None:
         log.error("DATABASE_URL is not set — cannot start")
         sys.exit(1)
 
-    if (
+    if os.environ.get("_PAPERSCOUT_TESTING") != "1" and (
         not (settings.slack_bot_token or "").strip()
         or not (settings.slack_signing_secret or "").strip()
     ):
@@ -153,11 +156,19 @@ async def _async_main() -> None:
     def _extra_health_fields() -> dict:
         lsp = scheduler._last_successful_poll
         s = scheduler._last_probe_stats
-        total = sum(s.get(k, 0) for k in ("hit_recent", "hit_old", "hit_no_lm", "miss", "error"))
-        hit_rate = (s.get("hit_recent", 0) + s.get("hit_old", 0)) / total if total > 0 else None
+        total = sum(
+            s.get(k, 0) for k in ("hit_recent", "hit_old", "hit_no_lm", "miss", "error")
+        )
+        hit_rate = (
+            (s.get("hit_recent", 0) + s.get("hit_old", 0)) / total
+            if total > 0
+            else None
+        )
         return {
             "last_successful_poll": (
-                datetime.fromtimestamp(lsp, tz=timezone.utc).isoformat() if lsp else None
+                datetime.fromtimestamp(lsp, tz=timezone.utc).isoformat()
+                if lsp
+                else None
             ),
             "probe_hit_rate": hit_rate,
             "mq_depth": mq.depth(),

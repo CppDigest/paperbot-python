@@ -41,6 +41,12 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+    if config.getoption("--bench-http-concurrency") <= 0:
+        raise pytest.UsageError("--bench-http-concurrency must be positive")
+    if config.getoption("--bench-poll-interval-minutes") <= 0:
+        raise pytest.UsageError("--bench-poll-interval-minutes must be positive")
+    if config.getoption("--bench-per-request-delay-ms") < 0:
+        raise pytest.UsageError("--bench-per-request-delay-ms must be non-negative")
     config.addinivalue_line(
         "markers",
         "benchmark: probe cycle performance / regression (run via ``pytest benchmarks/ -m benchmark``).",

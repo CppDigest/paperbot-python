@@ -34,6 +34,9 @@ This installs the project and all dev tools from [`uv.lock`](uv.lock) (see **Dep
 python -m venv .venv
 source .venv/bin/activate   # Windows Git Bash: source .venv/Scripts/activate
 pip install -e ".[dev]"
+# if using a classic venv instead of uv:
+pre-commit install
+pre-commit run --all-files
 ```
 
 ### Dependency lockfile
