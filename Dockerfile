@@ -49,7 +49,7 @@ FROM runtime AS test
 
 USER root
 COPY --from=test-builder /build/.venv /app/.venv
-COPY tests/ tests/
+COPY --from=test-builder /build/tests /app/tests
 RUN chown -R paperscout:paperscout /app/.venv /app/tests
 USER paperscout
 

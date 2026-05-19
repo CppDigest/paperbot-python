@@ -6,7 +6,8 @@ __pycache__
 *.pyc
 *.pyo
 data/
-tests/
+# tests/ must stay in the build context: Dockerfile `test` / `test-builder` targets
+# copy them for CI in-container pytest (production stages never COPY tests into the image).
 deploy/
 coverage.xml
 .coverage
