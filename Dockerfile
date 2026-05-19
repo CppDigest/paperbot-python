@@ -52,6 +52,8 @@ COPY --from=test-builder /build/.venv /app/.venv
 COPY --from=test-builder /build/tests /app/tests
 RUN chown -R paperscout:paperscout /app/.venv /app/tests
 USER paperscout
+# CI runs pytest via `docker run … python -m pytest`; do not inherit paperscout ENTRYPOINT.
+ENTRYPOINT []
 
 # Default image for production (must remain the final stage).
 FROM runtime AS production

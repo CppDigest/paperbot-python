@@ -124,9 +124,9 @@ jobs:
 
       - name: Run tests in container
         run: |
-          docker run --rm \
+          docker run --rm --entrypoint python \
             -e _PAPERSCOUT_TESTING=1 \
             -e SLACK_BOT_TOKEN=xoxb-ci-placeholder \
             -e SLACK_SIGNING_SECRET=ci-placeholder-secret \
             paperscout:ci \
-            python -m pytest tests/ -q --cov=paperscout --cov-fail-under=90
+            -m pytest tests/ -q --cov=paperscout --cov-fail-under=90

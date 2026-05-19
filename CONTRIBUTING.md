@@ -73,12 +73,12 @@ Update both `FROM` lines in the Dockerfile with the new digest, then rebuild.
 
 ```bash
 docker build --target test -t paperscout:test .
-docker run --rm \
+docker run --rm --entrypoint python \
   -e _PAPERSCOUT_TESTING=1 \
   -e SLACK_BOT_TOKEN=xoxb-test \
   -e SLACK_SIGNING_SECRET=test-secret \
   paperscout:test \
-  python -m pytest tests/ -q --cov=paperscout --cov-fail-under=90
+  -m pytest tests/ -q --cov=paperscout --cov-fail-under=90
 ```
 
 Production deploys use the default image target (runtime only, no dev dependencies).
