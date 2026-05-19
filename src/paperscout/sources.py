@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
+import threading
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -43,6 +45,7 @@ class WG21Index:
     def __init__(self, pool, cfg: Settings | None = None):
         self._cfg = cfg or settings
         self._cache = PaperCache(pool, ttl_hours=self._cfg.cache_ttl_hours)
+        # Replaced wholesale on every refresh(); never mutate in place.
         self.papers: dict[str, Paper] = {}
         self._max_rev: dict[int, int] = {}  # P-number -> highest revision
         self._max_p: int = 0  # absolute highest P-number
@@ -256,7 +259,11 @@ _Entry = tuple[str, Tier, str, int, int, str]
 
 
 class ISOProber:
-    """Async HEAD probe of isocpp draft URLs: hot every cycle, cold in rotating slices."""
+    """Async HEAD probe of isocpp draft URLs: hot every cycle, cold in rotating slices.
+
+    Designed for single-threaded async use on the event loop. Do not call from
+    threads, ``asyncio.to_thread()``, or thread-pool executors.
+    """
 
     # Keys that _stats is reset to at the start of every run_cycle().
     _STATS_TEMPLATE: dict[str, int] = {
@@ -265,7 +272,7 @@ class ISOProber:
         "miss": 0,  # server returned non-200
         "hit_recent": 0,  # 200 + Last-Modified within alert window
         "hit_old": 0,  # 200 + Last-Modified outside alert window
-        "hit_no_lm": 0,  # 200 + no Last-Modified header (treated as recent)
+        "hit_no_lm": 0,  # 200 + no or unusable Last-Modified (treated as recent)
         "error": 0,  # httpx / network exception
     }
 
@@ -281,14 +288,31 @@ class ISOProber:
         self.user_watchlist = user_watchlist
         self.cfg = cfg or settings
         self._cycle = 0
+        self._stats_lock = threading.Lock()
+        # This dict is mutated from async coroutines on the event loop.
+        # Thread-safety depends on asyncio cooperative scheduling. Do NOT access
+        # from asyncio.to_thread() or thread pool executors.
         self._stats: dict[str, int] = dict(self._STATS_TEMPLATE)
+
+    def _bump_stat(self, key: str, n: int = 1) -> None:
+        with self._stats_lock:
+            self._stats[key] += n
+
+    def _reset_stats(self) -> None:
+        with self._stats_lock:
+            self._stats = dict(self._STATS_TEMPLATE)
+
+    def snapshot_stats(self) -> dict[str, int]:
+        """Return a copy of per-cycle probe counters (lock-protected)."""
+        with self._stats_lock:
+            return dict(self._stats)
 
     # ── Public API ───────────────────────────────────────────────────────────
 
     async def run_cycle(self) -> list[ProbeHit]:
         """HEAD all scheduled URLs; return recent hits and persist discovery state."""
         self._cycle += 1
-        self._stats = dict(self._STATS_TEMPLATE)
+        self._reset_stats()
         t0 = time.monotonic()
 
         urls = self._build_probe_list()
@@ -333,7 +357,7 @@ class ISOProber:
         self.state.save()
 
         elapsed = time.monotonic() - t0
-        s = self._stats
+        s = self.snapshot_stats()
         hit_total = s["hit_recent"] + s["hit_old"] + s["hit_no_lm"]
         log.info(
             "PROBE-DONE  cycle=%d  elapsed=%.1fs  total=%d  "
@@ -350,6 +374,26 @@ class ISOProber:
             s["skipped_discovered"],
             s["skipped_in_index"],
             s["error"],
+        )
+        log.info(
+            "PROBE-CYCLE-SUMMARY %s",
+            json.dumps(
+                {
+                    "cycle": self._cycle,
+                    "cycle_requests": len(urls),
+                    "cycle_duration_s": round(elapsed, 2),
+                    "hot_probes": hot_count,
+                    "cold_probes": cold_count,
+                    "errors": s["error"],
+                    "hit_total": hit_total,
+                    "hit_recent": s["hit_recent"],
+                    "hit_old": s["hit_old"],
+                    "hit_no_lm": s["hit_no_lm"],
+                    "miss": s["miss"],
+                    "skipped_discovered": s["skipped_discovered"],
+                    "skipped_in_index": s["skipped_in_index"],
+                }
+            ),
         )
         return hits
 
@@ -492,13 +536,13 @@ class ISOProber:
     ) -> ProbeHit | None:
         if self.state.is_discovered(url):
             log.debug("SKIP  disc  %s", url)
-            self._stats["skipped_discovered"] += 1
+            self._bump_stat("skipped_discovered")
             return None
         paper_id = f"{prefix}{num:04d}R{rev}"
         ids = known_ids if known_ids is not None else self.index.get_known_paper_ids()
         if paper_id in ids:
             log.debug("SKIP  idx   %s", paper_id)
-            self._stats["skipped_in_index"] += 1
+            self._bump_stat("skipped_in_index")
             return None
         async with sem:
             _max_retries = 3
@@ -521,14 +565,14 @@ class ISOProber:
                         url,
                         exc,
                     )
-                    self._stats["error"] += 1
+                    self._bump_stat("error")
                     return None
             else:
                 return None
 
             if resp.status_code != 200:
                 log.debug("MISS  %d  %s", resp.status_code, url)
-                self._stats["miss"] += 1
+                self._bump_stat("miss")
                 return None
 
             # Determine recency from the Last-Modified response header.
@@ -538,10 +582,15 @@ class ISOProber:
             if lm_str:
                 try:
                     last_modified = parsedate_to_datetime(lm_str)
+                    # Naive datetimes from parsedate_to_datetime are UTC.
+                    if last_modified.tzinfo is None:
+                        last_modified = last_modified.replace(tzinfo=timezone.utc)
                     threshold = timedelta(hours=self.cfg.alert_modified_hours)
                     is_recent = (datetime.now(timezone.utc) - last_modified) <= threshold
                 except Exception:
-                    pass
+                    # Bad Last-Modified: merge with no-LM so we don't silently drop hits.
+                    last_modified = None
+                    is_recent = True
             else:
                 # No Last-Modified: first-ever discovery of an untracked
                 # file; treat as recent so we don't silently drop it.
@@ -557,11 +606,11 @@ class ISOProber:
             )
 
             if is_recent and last_modified is not None:
-                self._stats["hit_recent"] += 1
+                self._bump_stat("hit_recent")
             elif not is_recent:
-                self._stats["hit_old"] += 1
+                self._bump_stat("hit_old")
             else:
-                self._stats["hit_no_lm"] += 1
+                self._bump_stat("hit_no_lm")
 
             # Only fetch front text when we intend to alert.
             front_text = ""
