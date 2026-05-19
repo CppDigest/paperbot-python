@@ -58,7 +58,7 @@ Production images install from [`uv.lock`](uv.lock) via `uv sync --frozen` in th
 **After changing dependencies** (`pyproject.toml` / `uv.lock`):
 
 1. Commit the updated lockfile.
-2. Rebuild: `docker compose build --no-cache` or `docker build -t paperscout:test .`
+2. Rebuild: `docker compose build --no-cache` or `docker build --target production -t paperscout:production .`
 
 **When upgrading the Python base image:**
 
