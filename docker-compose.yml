@@ -1,6 +1,9 @@
+# Image built from digest-pinned Dockerfile + frozen uv.lock (see CONTRIBUTING.md).
 services:
   paperscout:
-    build: .
+    build:
+      context: .
+      target: production
     ports:
       - "127.0.0.1:9100:3000"
       - "127.0.0.1:9101:8080"

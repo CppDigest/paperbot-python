@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     # poll_interval_minutes).  Acts as a short cooldown before the next cycle.
     poll_overrun_cooldown_seconds: int = Field(default=300, ge=1)  # 5 min
     enable_bulk_wg21: bool = True
-    enable_bulk_openstd: bool = True
     enable_iso_probe: bool = True
 
     # -- Paper prefixes / extensions (globals used for gap/unknown numbers) --

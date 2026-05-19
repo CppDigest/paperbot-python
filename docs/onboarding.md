@@ -147,7 +147,6 @@ Every key from [`.env.example`](../.env.example) is listed below. Names in `.env
 | `POLL_INTERVAL_MINUTES`         | `30`    | Target wall-clock spacing between poll cycles (see [Scheduling](#scheduling-asyncio-loop) below).                       |
 | `POLL_OVERRUN_COOLDOWN_SECONDS` | `300`   | **Minimum** sleep after any cycle that ran longer than one interval — avoids hammering the network if a cycle overruns. |
 | `ENABLE_BULK_WG21`              | `true`  | Fetch and parse wg21.link index each cycle when enabled.                                                                |
-| `ENABLE_BULK_OPENSTD`           | `true`  | Reserved for open-std.org bulk fetch (not yet wired into the scheduler).                                                |
 | `ENABLE_ISO_PROBE`              | `true`  | Run isocpp.org HEAD probing each cycle when enabled.                                                                    |
 
 ### Probe prefixes / extensions
