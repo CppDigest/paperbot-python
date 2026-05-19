@@ -50,8 +50,11 @@ FROM runtime AS test
 USER root
 COPY --from=test-builder /build/.venv /app/.venv
 COPY --from=test-builder /build/tests /app/tests
-RUN chown -R paperscout:paperscout /app/.venv /app/tests
+# pytest / coverage read [tool.pytest] and [tool.coverage] from pyproject.toml
+COPY --from=test-builder /build/pyproject.toml /app/pyproject.toml
+RUN chown -R paperscout:paperscout /app
 USER paperscout
+ENV COVERAGE_FILE=/tmp/.coverage
 # CI runs pytest via `docker run … python -m pytest`; do not inherit paperscout ENTRYPOINT.
 ENTRYPOINT []
 

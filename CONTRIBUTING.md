@@ -77,6 +77,7 @@ docker run --rm --entrypoint python \
   -e _PAPERSCOUT_TESTING=1 \
   -e SLACK_BOT_TOKEN=xoxb-test \
   -e SLACK_SIGNING_SECRET=test-secret \
+  -e COVERAGE_FILE=/tmp/.coverage \
   paperscout:test \
   -m pytest tests/ -q --cov=paperscout --cov-fail-under=90
 ```

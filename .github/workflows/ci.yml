@@ -128,5 +128,6 @@ jobs:
             -e _PAPERSCOUT_TESTING=1 \
             -e SLACK_BOT_TOKEN=xoxb-ci-placeholder \
             -e SLACK_SIGNING_SECRET=ci-placeholder-secret \
+            -e COVERAGE_FILE=/tmp/.coverage \
             paperscout:ci \
             -m pytest tests/ -q --cov=paperscout --cov-fail-under=90
