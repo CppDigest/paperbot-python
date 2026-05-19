@@ -317,9 +317,7 @@ class ISOProber:
 
         urls = self._build_probe_list()
         known_ids = self.index.get_known_paper_ids()
-        hot_count = sum(
-            1 for u in urls if u[1] in (Tier.WATCHLIST, Tier.FRONTIER, Tier.RECENT)
-        )
+        hot_count = sum(1 for u in urls if u[1] in (Tier.WATCHLIST, Tier.FRONTIER, Tier.RECENT))
         cold_count = sum(1 for u in urls if u[1] == Tier.COLD)
         slice_idx = (self._cycle - 1) % self.cfg.cold_cycle_divisor
         log.info(
@@ -341,9 +339,7 @@ class ISOProber:
             follow_redirects=True,
         ) as client:
             tasks = [
-                self._probe_one(
-                    client, sem, url, prefix, num, rev, ext, tier, known_ids
-                )
+                self._probe_one(client, sem, url, prefix, num, rev, ext, tier, known_ids)
                 for url, tier, prefix, num, rev, ext in urls
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -409,9 +405,9 @@ class ISOProber:
             extra_p_numbers=self.state.paper_nums_from_discovered_iso_urls(),
         )
         hot_known, hot_unknown = self._hot_numbers(frontier)
-        return self._build_hot_list(
-            frontier, hot_known, hot_unknown
-        ) + self._build_cold_slice(self._cycle, frontier, hot_known, hot_unknown)
+        return self._build_hot_list(frontier, hot_known, hot_unknown) + self._build_cold_slice(
+            self._cycle, frontier, hot_known, hot_unknown
+        )
 
     def _hot_numbers(self, frontier: int) -> tuple[set[int], set[int]]:
         """Return (known_hot, unknown_hot) P-number sets to probe every cycle."""
@@ -429,16 +425,9 @@ class ISOProber:
 
         # Recently active papers
         if self.cfg.hot_lookback_months > 0:
-            cutoff = date.today() - timedelta(
-                days=int(self.cfg.hot_lookback_months * 30.44)
-            )
+            cutoff = date.today() - timedelta(days=int(self.cfg.hot_lookback_months * 30.44))
             for p in self.index.get_papers_snapshot().values():
-                if (
-                    p.prefix != "P"
-                    or p.number is None
-                    or not p.date
-                    or p.date == "unknown"
-                ):
+                if p.prefix != "P" or p.number is None or not p.date or p.date == "unknown":
                     continue
                 try:
                     if date.fromisoformat(p.date[:10]) >= cutoff:
@@ -449,9 +438,7 @@ class ISOProber:
         known_p_nums = self.index.known_p_numbers()
         return hot & known_p_nums, hot - known_p_nums
 
-    def _tier_label(
-        self, num: int, watchlist_set: set[int], frontier_range: set[int]
-    ) -> Tier:
+    def _tier_label(self, num: int, watchlist_set: set[int], frontier_range: set[int]) -> Tier:
         if num in watchlist_set:
             return Tier.WATCHLIST
         if num in frontier_range:
@@ -599,9 +586,7 @@ class ISOProber:
                     if last_modified.tzinfo is None:
                         last_modified = last_modified.replace(tzinfo=timezone.utc)
                     threshold = timedelta(hours=self.cfg.alert_modified_hours)
-                    is_recent = (
-                        datetime.now(timezone.utc) - last_modified
-                    ) <= threshold
+                    is_recent = (datetime.now(timezone.utc) - last_modified) <= threshold
                 except (TypeError, ValueError):
                     # Bad Last-Modified: merge with no-LM so we don't silently drop hits.
                     last_modified = None
@@ -611,11 +596,7 @@ class ISOProber:
                 # file; treat as recent so we don't silently drop it.
                 is_recent = True
 
-            lm_display = (
-                last_modified.strftime("%Y-%m-%d %H:%M UTC")
-                if last_modified
-                else "no-lm"
-            )
+            lm_display = last_modified.strftime("%Y-%m-%d %H:%M UTC") if last_modified else "no-lm"
             log.info(
                 "HIT  tier=%-10s  recent=%-5s  lm=%-20s  %s",
                 tier,
