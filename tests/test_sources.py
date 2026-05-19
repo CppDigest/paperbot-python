@@ -756,20 +756,40 @@ class TestISOProberLists:
         assert 5 in cold_nums  # normally probed
 
     async def test_probe_one_bad_last_modified_header(self, fake_pool):
-        """An unparsable Last-Modified header should not crash; is_recent stays False."""
+        """Unparsable Last-Modified is treated like no-LM (recent, no silent drop)."""
         prober, _, _ = self._make_prober(fake_pool)
         url = "https://isocpp.org/files/papers/D9999R0.pdf"
         sem = asyncio.Semaphore(5)
         head_resp = MagicMock()
         head_resp.status_code = 200
         head_resp.headers = {"last-modified": "this is not a date"}
-        client = AsyncMock()
-        client.head = AsyncMock(return_value=head_resp)
+        get_resp = _make_response(200, text="<p>x</p>")
+        client = _make_async_client(head_resp=head_resp, get_resp=get_resp)
         result = await prober._probe_one(client, sem, url, "D", 9999, 0, ".pdf", "cold")
         assert result is not None
-        assert result.is_recent is False
-        # No front_text GET for non-recent
-        client.get.assert_not_called()
+        assert result.is_recent is True
+        assert result.last_modified is None
+        assert prober._stats["hit_no_lm"] == 1
+        client.get.assert_called()
+
+    async def test_probe_one_naive_last_modified_recent(self, fake_pool):
+        """Naive-but-parseable Last-Modified within alert window counts as recent."""
+        prober, _, _ = self._make_prober(fake_pool)
+        url = "https://isocpp.org/files/papers/D9992R0.pdf"
+        sem = asyncio.Semaphore(5)
+        naive_lm = datetime.now().replace(tzinfo=None)
+        lm_header = naive_lm.strftime("%a, %d %b %Y %H:%M:%S")
+        head_resp = MagicMock()
+        head_resp.status_code = 200
+        head_resp.headers = {"last-modified": lm_header}
+        get_resp = _make_response(200, text="<p>x</p>")
+        client = _make_async_client(head_resp=head_resp, get_resp=get_resp)
+        result = await prober._probe_one(client, sem, url, "D", 9992, 0, ".pdf", "hot")
+        assert result is not None
+        assert result.is_recent is True
+        assert result.last_modified is not None
+        assert result.last_modified.tzinfo == timezone.utc
+        assert prober._stats["hit_recent"] == 1
 
     def test_cold_excludes_hot_numbers(self, fake_pool):
         prober, index, _ = self._make_prober(
@@ -1111,6 +1131,45 @@ class TestISOProberRunCycle:
         assert len(old_hits) == 1
         assert old_hits[0].is_recent is False
         assert state.is_discovered(hit_url)
+
+    async def test_run_cycle_stats_integrity_under_concurrency(self, fake_pool):
+        """Every probed URL accounts for exactly one _stats bucket under concurrent gather."""
+        index = WG21Index(fake_pool)
+        index._max_p = 100
+        index._max_rev = {99: 0, 100: 0}
+        index._sorted_p_nums = [99, 100]
+        state = ProbeState(fake_pool)
+        cfg = make_test_settings(
+            hot_lookback_months=0,
+            hot_revision_depth=1,
+            frontier_window_above=0,
+            frontier_window_below=0,
+            gap_max_rev=0,
+            cold_cycle_divisor=100,
+            http_concurrency=10,
+        )
+        prober = ISOProber(index, state, user_watchlist=_mock_wl([9999]), cfg=cfg)
+
+        mock_client = _make_async_client(head_resp=_make_response(404))
+
+        with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            await prober.run_cycle()
+
+        urls = prober._build_probe_list()
+        s = prober.snapshot_stats()
+        accounted = (
+            s["skipped_discovered"]
+            + s["skipped_in_index"]
+            + s["miss"]
+            + s["hit_recent"]
+            + s["hit_old"]
+            + s["hit_no_lm"]
+            + s["error"]
+        )
+        assert accounted == len(urls)
+        assert s["miss"] == len(urls)  # all 404 in this mock
 
 
 # ── open-std.org scraper ─────────────────────────────────────────────────────

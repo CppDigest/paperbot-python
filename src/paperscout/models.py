@@ -171,8 +171,9 @@ class ProbeHit:
     tier: Tier
     front_text: str = ""
     last_modified: datetime | None = field(default=None)
-    # True when Last-Modified is within alert_modified_hours of now,
-    # or when the header is absent (first-ever discovery of a new file).
+    # True when Last-Modified is within alert_modified_hours of now, when the
+    # header is absent, or when the header is present but unusable (first-ever
+    # discovery or bad Last-Modified — both treated as recent for alerting).
     is_recent: bool = False
 
 

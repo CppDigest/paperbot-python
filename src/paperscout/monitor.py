@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import httpx
 
+from .concurrency import run_blocking_io
 from .config import Settings, settings
 from .errors import ConfigurationError, FailureCategory
 from .models import Paper, PerUserMatches, ProbeHit
@@ -150,7 +151,7 @@ class Scheduler:
         if not self._seeded:
             await self.seed()
             self._last_successful_poll = time.time()
-            self._last_probe_stats = dict(self.prober._stats)
+            self._last_probe_stats = self.prober.snapshot_stats()
             return PollResult(
                 diff=DiffResult(new_papers=[], updated_papers=[]),
                 probe_hits=[],
@@ -228,9 +229,10 @@ class Scheduler:
                     )
                     break
 
-        # Dispatched to a thread because matches_for_users performs synchronous
-        # PostgreSQL I/O via psycopg2, which would block the event loop.
-        per_user_matches = await asyncio.to_thread(
+        # Safe to run off the event loop: matches_for_users only performs blocking
+        # PostgreSQL I/O via psycopg2 on its own pool connection — it does not
+        # touch ISOProber._stats, WG21Index.papers, or other shared source state.
+        per_user_matches = await run_blocking_io(
             self.user_watchlist.matches_for_users,
             diff.new_papers,
             recent_hits,
@@ -268,7 +270,7 @@ class Scheduler:
             len(per_user_matches),
         )
         self._last_successful_poll = time.time()
-        self._last_probe_stats = dict(self.prober._stats)
+        self._last_probe_stats = self.prober.snapshot_stats()
         return result
 
     async def run_forever(self) -> None:

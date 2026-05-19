@@ -358,7 +358,7 @@ Every P-number from 1 to the effective frontier is probed. Numbers are divided i
 | **Cold** (1/48 per cycle ≈ daily) | All other P-numbers          | everything else                           | D-prefix, latest+1, pdf+html                        |
 | **Cold** (1/48 per cycle)         | Gap numbers (no index entry) | 1..frontier minus known                   | D+P, R0..R1, pdf+html                               |
 
-Typical per-cycle request count: **~1,600–2,000 HEAD requests** (~8–10 s at 20 concurrent, 100 ms latency). A full sweep of all ~4,000 P-numbers completes within ~24 h of continuous 30-min polling.
+Typical per-cycle request count: **~1,600–2,000 HEAD requests** (~8–10 s at 20 concurrent, 100 ms latency). A full sweep of all ~4,000 P-numbers completes within ~24 h of continuous 30-min polling. See **[docs/probe-operations.md](docs/probe-operations.md)** for operational thresholds, log fields, and troubleshooting.
 
 ### Alerting by Last-Modified
 

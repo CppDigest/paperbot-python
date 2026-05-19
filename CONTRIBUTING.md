@@ -6,7 +6,17 @@ Thank you for your interest in improving paperscout. This document describes how
 
 - **[docs/onboarding.md](docs/onboarding.md)** — clone, database, `.env`, tests, and running the app locally.
 - **[docs/handoff.md](docs/handoff.md)** — maintainer-oriented design notes and operational gotchas.
+- **[docs/architecture.md](docs/architecture.md)** — concurrency model (event loop vs threads).
+- **[docs/probe-operations.md](docs/probe-operations.md)** — production probe volume, tuning, troubleshooting.
 - **[README.md](README.md)** — product behavior, Slack setup, deployment, and environment variable tables.
+
+### Concurrency
+
+When adding blocking I/O or new data sources:
+
+1. Use **`run_blocking_io()`** (see `src/paperscout/concurrency.py`) only for pure blocking I/O with **no shared in-process mutable state** (e.g. psycopg2 via the connection pool).
+2. **Never access `ISOProber._stats`, `WG21Index.papers`, or other source internals from a thread** — keep probes and index refresh on the asyncio event loop.
+3. See **[docs/architecture.md](docs/architecture.md)** for the full model and **[docs/probe-operations.md](docs/probe-operations.md)** for probe tuning.
 
 ## Workflow
 
