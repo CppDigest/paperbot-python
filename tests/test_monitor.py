@@ -108,6 +108,21 @@ class TestDiffSnapshots:
         dates = [p.date for p in result.new_papers]
         assert dates == sorted(dates, reverse=True)
 
+    def test_updated_papers_sorted_by_date_descending(self):
+        prev = {
+            "P2300R10": self._paper("P2300R10", title="Old A", date="2024-01-01"),
+            "P2301R0": self._paper("P2301R0", title="Old B", date="2024-03-01"),
+            "P2302R0": self._paper("P2302R0", title="Old C", date="2024-06-01"),
+        }
+        curr = {
+            "P2300R10": self._paper("P2300R10", title="New A", date="2024-01-01"),
+            "P2301R0": self._paper("P2301R0", title="New B", date="2024-06-01"),
+            "P2302R0": self._paper("P2302R0", title="New C", date="2024-03-01"),
+        }
+        result = diff_snapshots(prev, curr)
+        dates = [p.date for p in result.updated_papers]
+        assert dates == sorted(dates, reverse=True)
+
     def test_empty_to_empty(self):
         result = diff_snapshots({}, {})
         assert result.new_papers == [] and result.updated_papers == []
@@ -168,6 +183,7 @@ def _make_scheduler(fake_pool, **cfg_overrides):
     index.papers = {}
     prober = MagicMock(spec=ISOProber)
     prober.run_cycle = AsyncMock(return_value=[])
+    prober.snapshot_stats = MagicMock(return_value={})
     prober._stats = {}
     user_watchlist = MagicMock(spec=UserWatchlist)
     user_watchlist.matches_for_users.return_value = {}
@@ -351,6 +367,57 @@ class TestScheduler:
         await scheduler.poll_once()  # real poll
         assert len(notified) == 1
 
+    async def test_cold_start_first_poll_does_not_notify(self, fake_pool):
+        notified = []
+        scheduler, _, _, _, _ = _make_scheduler(fake_pool)
+        scheduler.notify_callback = notified.append
+        result = await scheduler.poll_once()
+        assert notified == []
+        assert result.probe_hits == []
+
+    async def test_restart_with_prior_poll_notifies_seed_hits(self, fake_pool):
+        notified = []
+        scheduler, _, prober, user_watchlist, state = _make_scheduler(fake_pool)
+        scheduler.notify_callback = notified.append
+        state.touch_poll()
+        hit = _recent_hit()
+        prober.run_cycle = AsyncMock(return_value=[hit])
+        user_watchlist.matches_for_users.return_value = {
+            "U123": PerUserMatches(papers=[], probe_hits=[(hit, "author")])
+        }
+        result = await scheduler.poll_once()
+        assert len(notified) == 1
+        assert len(result.probe_hits) == 1
+        assert result.probe_hits[0].is_recent is True
+
+    async def test_restart_with_discovered_urls_notifies(self, fake_pool):
+        notified = []
+        scheduler, _, prober, user_watchlist, state = _make_scheduler(fake_pool)
+        scheduler.notify_callback = notified.append
+        state.mark_discovered("https://isocpp.org/files/papers/D1111R0.pdf")
+        hit = _recent_hit()
+        prober.run_cycle = AsyncMock(return_value=[hit])
+        user_watchlist.matches_for_users.return_value = {
+            "U123": PerUserMatches(papers=[], probe_hits=[(hit, "author")])
+        }
+        result = await scheduler.poll_once()
+        assert len(notified) == 1
+        assert len(result.probe_hits) == 1
+
+    async def test_restart_seed_old_hits_not_in_result(self, fake_pool, caplog):
+        import logging
+
+        notified = []
+        scheduler, _, prober, _, state = _make_scheduler(fake_pool)
+        scheduler.notify_callback = notified.append
+        state.touch_poll()
+        old = _old_hit()
+        prober.run_cycle = AsyncMock(return_value=[old])
+        with caplog.at_level(logging.INFO):
+            result = await scheduler.poll_once()
+        assert result.probe_hits == []
+        assert "PROBE-OLD" in caplog.text
+
     async def test_poll_once_skips_refresh_when_disabled(self, fake_pool):
         scheduler, index, _, _, _ = _make_scheduler(fake_pool, enable_bulk_wg21=False)
         scheduler._seeded = True
@@ -368,8 +435,14 @@ class TestScheduler:
     async def test_seed_marks_discovered(self, fake_pool):
         scheduler, _, prober, _, state = _make_scheduler(fake_pool)
         hit = _recent_hit()
-        prober.run_cycle = AsyncMock(return_value=[hit])
-        await scheduler.seed()
+
+        async def fake_run_cycle():
+            state.mark_discovered(hit.url)
+            return [hit]
+
+        prober.run_cycle = AsyncMock(side_effect=fake_run_cycle)
+        seed_result = await scheduler.seed()
+        assert seed_result.probe_hits == [hit]
         assert state.is_discovered(hit.url)
 
     async def test_run_forever_calls_poll_and_breaks_on_cancel(self, fake_pool):

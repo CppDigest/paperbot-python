@@ -143,13 +143,15 @@ async def _async_main() -> None:
     def _extra_health_fields() -> dict:
         lsp = scheduler._last_successful_poll
         s = scheduler._last_probe_stats
-        total = sum(s.get(k, 0) for k in ("hit_recent", "hit_old", "hit_no_lm", "miss", "error"))
-        hit_rate = (s.get("hit_recent", 0) + s.get("hit_old", 0)) / total if total > 0 else None
+        # HTTP 200 outcomes / non-skipped probe attempts (excludes skipped_discovered, skipped_in_index).
+        hits = s.get("hit_recent", 0) + s.get("hit_old", 0) + s.get("hit_no_lm", 0)
+        attempted = hits + s.get("miss", 0) + s.get("error", 0)
+        probe_success_rate = hits / attempted if attempted > 0 else None
         return {
             "last_successful_poll": (
                 datetime.fromtimestamp(lsp, tz=timezone.utc).isoformat() if lsp else None
             ),
-            "probe_hit_rate": hit_rate,
+            "probe_success_rate": probe_success_rate,
             "mq_depth": mq.depth(),
             "db_pool": _pool_status(pool),
         }

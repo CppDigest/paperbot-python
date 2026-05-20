@@ -40,7 +40,7 @@ def health_url_with_extras():
         lambda: 42,
         extra_fields_fn=lambda: {
             "last_successful_poll": "2026-03-16T12:00:00+00:00",
-            "probe_hit_rate": 0.5,
+            "probe_success_rate": 0.5,
             "mq_depth": 3,
             "db_pool": {"max": 10, "in_use": 1, "available": 9},
         },
@@ -108,6 +108,6 @@ class TestHealthEndpoint:
         assert "version" in data
         assert "last_successful_poll" in data
         assert data["last_successful_poll"] == "2026-03-16T12:00:00+00:00"
-        assert data["probe_hit_rate"] == 0.5
+        assert data["probe_success_rate"] == 0.5
         assert data["mq_depth"] == 3
         assert data["db_pool"] == {"max": 10, "in_use": 1, "available": 9}
