@@ -226,6 +226,12 @@ curl -sf http://localhost:9101/health | python3 -m json.tool
 docker compose logs -f paperscout
 ```
 
+### Rebuilding after updates
+
+Production deploys typically run `git pull` followed by `docker compose up -d --build paperscout` (see CD workflow). Dependencies are frozen in `uv.lock` and installed with `uv sync --frozen` during the image build; the base Python image is digest-pinned in the Dockerfile.
+
+When upgrading dependencies or the base image locally, see **Docker image rebuild** in [CONTRIBUTING.md](../CONTRIBUTING.md).
+
 ### Example: staging-style host
 
 If you use a **separate** staging deployment (second clone path and GitHub Environment `staging`), typical placeholders are:

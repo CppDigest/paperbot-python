@@ -217,7 +217,6 @@ def make_test_settings(**overrides) -> Settings:
         poll_interval_minutes=30,
         poll_overrun_cooldown_seconds=300,
         enable_bulk_wg21=True,
-        enable_bulk_openstd=True,
         enable_iso_probe=True,
         probe_prefixes=["D", "P"],
         probe_extensions=[".pdf"],

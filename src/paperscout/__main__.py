@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import logging.handlers
-import os
 import sys
 import threading
 from datetime import datetime, timezone
@@ -92,16 +91,6 @@ async def _async_main() -> None:
 
     if not settings.database_url:
         log.error("DATABASE_URL is not set — cannot start")
-        sys.exit(1)
-
-    if os.environ.get("_PAPERSCOUT_TESTING") != "1" and (
-        not (settings.slack_bot_token or "").strip()
-        or not (settings.slack_signing_secret or "").strip()
-    ):
-        log.error(
-            "Slack is not configured: SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET must be "
-            "non-empty — cannot start"
-        )
         sys.exit(1)
 
     launch_time = datetime.now(timezone.utc)

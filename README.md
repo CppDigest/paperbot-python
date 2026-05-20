@@ -242,7 +242,6 @@ All parameters are configurable via environment variables or a `.env` file. See 
 | `POLL_INTERVAL_MINUTES`         | `30`    | Main polling cycle interval                                                                                         |
 | `POLL_OVERRUN_COOLDOWN_SECONDS` | `300`   | Minimum sleep after a poll cycle that overran the interval (avoids tight loops when work or errors stretch a cycle) |
 | `ENABLE_BULK_WG21`              | `true`  | Fetch wg21.link/index.json each cycle                                                                               |
-| `ENABLE_BULK_OPENSTD`           | `true`  | Reserved for open-std.org scraping (not yet scheduled)                                                              |
 | `ENABLE_ISO_PROBE`              | `true`  | Run isocpp.org HEAD probing each cycle                                                                              |
 
 ### Probe Prefixes / Extensions

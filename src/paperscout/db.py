@@ -8,9 +8,6 @@ from psycopg2 import pool as pg_pool
 
 log = logging.getLogger(__name__)
 
-# Module-level pool; set by __main__ before anything else runs.
-pool: pg_pool.ThreadedConnectionPool | None = None
-
 _DDL = """
 CREATE TABLE IF NOT EXISTS paper_cache (
     key         TEXT PRIMARY KEY,

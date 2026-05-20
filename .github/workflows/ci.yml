@@ -16,7 +16,9 @@ jobs:
     name: Lockfile (uv)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -31,7 +33,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: lockfile
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -61,7 +65,9 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -98,7 +104,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: lockfile
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -111,3 +119,25 @@ jobs:
 
       - name: Run probe benchmark (mock HTTP)
         run: uv run pytest benchmarks/ -m benchmark -v --tb=short
+
+  docker:
+    name: Docker image (build + tests in container)
+    runs-on: ubuntu-latest
+    needs: lockfile
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Build test image
+        run: docker build --target test -t paperscout:ci .
+
+      - name: Run tests in container
+        run: |
+          docker run --rm --entrypoint python \
+            -e _PAPERSCOUT_TESTING=1 \
+            -e SLACK_BOT_TOKEN=xoxb-ci-placeholder \
+            -e SLACK_SIGNING_SECRET=ci-placeholder-secret \
+            -e COVERAGE_FILE=/tmp/.coverage \
+            paperscout:ci \
+            -m pytest tests/ -q --cov=paperscout --cov-fail-under=90

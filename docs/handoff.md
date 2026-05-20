@@ -49,7 +49,7 @@ Outbound Slack messages go through a **background queue** (see [`scout.py`](../s
 
 ## Open TODOs and deferred items
 
-- **`ENABLE_BULK_OPENSTD` / open-std.org** — Code paths exist in [`sources.py`](../src/paperscout/sources.py); bulk open-std scheduling is **not** integrated into the main poll loop yet (README notes “not yet scheduled”).
+- **open-std.org bulk fetch** — Code paths exist in [`sources.py`](../src/paperscout/sources.py); bulk open-std scheduling is **not** integrated into the main poll loop yet (no env toggle).
 - **Eval / roadmap items** — If your org keeps a separate eval or ticket backlog, link it here; this repo does not ship a frozen “eval” document.
 
 ## Related documents

@@ -61,6 +61,41 @@ Runtime and dev dependencies are pinned in **`uv.lock`**, generated from [`pypro
 
 **To verify locally before pushing:** `uv lock --check`
 
+### Docker image rebuild
+
+Production images install from [`uv.lock`](uv.lock) via `uv sync --frozen` in the multi-stage [`Dockerfile`](Dockerfile) (not a floating `pip install .`). The base `python:3.12-slim` image is pinned by digest in the Dockerfile.
+
+**After changing dependencies** (`pyproject.toml` / `uv.lock`):
+
+1. Commit the updated lockfile.
+2. Rebuild: `docker compose build --no-cache` or `docker build --target production -t paperscout:production .`
+
+**When upgrading the Python base image:**
+
+```bash
+docker pull python:3.12-slim
+docker inspect --format='{{index .RepoDigests 0}}' python:3.12-slim
+```
+
+Update both `FROM` lines in the Dockerfile with the new digest, then rebuild.
+
+**Verify tests inside the image** (no live Postgres required):
+
+```bash
+docker build --target test -t paperscout:test .
+docker run --rm --entrypoint python \
+  -e _PAPERSCOUT_TESTING=1 \
+  -e SLACK_BOT_TOKEN=xoxb-test \
+  -e SLACK_SIGNING_SECRET=test-secret \
+  -e COVERAGE_FILE=/tmp/.coverage \
+  paperscout:test \
+  -m pytest tests/ -q --cov=paperscout --cov-fail-under=90
+```
+
+Production deploys use the default image target (runtime only, no dev dependencies).
+
+See also [deploy/SERVER_SETUP.md](deploy/SERVER_SETUP.md) for operator rebuild steps on the server.
+
 ### Tests and coverage
 
 ```bash
