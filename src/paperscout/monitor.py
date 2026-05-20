@@ -168,9 +168,9 @@ class Scheduler:
 
         if not self._seeded:
             seed_result = await self.seed()
-            self._last_successful_poll = time.time()
-            self._last_probe_stats = self.prober.snapshot_stats()
             if not seed_result.had_prior_state:
+                self._last_successful_poll = time.time()
+                self._last_probe_stats = self.prober.snapshot_stats()
                 return PollResult(
                     diff=DiffResult(new_papers=[], updated_papers=[]),
                     probe_hits=[],
@@ -208,6 +208,8 @@ class Scheduler:
             )
             if self.notify_callback:
                 self.notify_callback(result)
+            self._last_successful_poll = time.time()
+            self._last_probe_stats = self.prober.snapshot_stats()
             return result
 
         previous = dict(self._previous_papers)
