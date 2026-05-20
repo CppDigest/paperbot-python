@@ -54,7 +54,11 @@ def diff_snapshots(
             ):
                 updated_papers.append(paper)
 
-    new_papers.sort(key=lambda p: p.date or "", reverse=True)
+    def _paper_sort_key(p: Paper) -> tuple[str, str]:
+        return (p.date or "", p.id)
+
+    new_papers.sort(key=_paper_sort_key, reverse=True)
+    updated_papers.sort(key=_paper_sort_key, reverse=True)
     return DiffResult(new_papers=new_papers, updated_papers=updated_papers)
 
 
@@ -69,6 +73,14 @@ class DPTransition:
     draft_url: str
     last_modified: float | None
     discovered_at: float
+
+
+@dataclass(slots=True)
+class SeedResult:
+    """Outcome of ``seed()``: probe hits from the seed cycle and whether DB had prior state."""
+
+    probe_hits: list[ProbeHit]
+    had_prior_state: bool
 
 
 class PollResult:
@@ -117,8 +129,13 @@ class Scheduler:
         self._last_probe_stats: dict[str, int] = {}
         self._last_ops_alert: float | None = None
 
-    async def seed(self) -> None:
-        """First-run: gather all current papers from all sources without notifying."""
+    async def seed(self) -> SeedResult:
+        """Gather current index and probe state.
+
+        Cold first deploy: no notifications from seed. On restart (prior poll or
+        discovered URLs), ``poll_once`` may notify for recent probe hits from this seed cycle.
+        """
+        had_prior_state = self.state.last_poll > 0 or len(self.state.get_all_discovered()) > 0
         t0 = time.monotonic()
         log.info("SEED-START  seeding local database from all sources")
 
@@ -128,19 +145,20 @@ class Scheduler:
 
         self._previous_papers = dict(self.index.papers)
 
+        hits: list[ProbeHit] = []
         if self.cfg.enable_iso_probe:
             hits = await self.prober.run_cycle()
-            for hit in hits:
-                self.state.mark_discovered(hit.url)
             log.info("SEED  isocpp.org probe  existing=%d", len(hits))
 
         self._seeded = True
         log.info(
-            "SEED-DONE  elapsed=%.1fs  papers=%d  discovered=%d",
+            "SEED-DONE  elapsed=%.1fs  papers=%d  discovered=%d  had_prior_state=%s",
             time.monotonic() - t0,
             len(self._previous_papers),
             len(self.state.get_all_discovered()),
+            had_prior_state,
         )
+        return SeedResult(probe_hits=hits, had_prior_state=had_prior_state)
 
     async def poll_once(self) -> PollResult:
         """Refresh index (if enabled), diff, probe isocpp, compute matches, notify."""
@@ -149,13 +167,50 @@ class Scheduler:
         log.info("POLL-START  poll=%d", self._poll_count)
 
         if not self._seeded:
-            await self.seed()
+            seed_result = await self.seed()
+            if not seed_result.had_prior_state:
+                self._last_successful_poll = time.time()
+                self._last_probe_stats = self.prober.snapshot_stats()
+                return PollResult(
+                    diff=DiffResult(new_papers=[], updated_papers=[]),
+                    probe_hits=[],
+                )
+
+            probe_hits = seed_result.probe_hits
+            recent_hits = [h for h in probe_hits if h.is_recent]
+            old_hits = [h for h in probe_hits if not h.is_recent]
+            if old_hits:
+                log.info(
+                    "PROBE-OLD  %d hits with Last-Modified outside %dh window "
+                    "(recorded to discovered, no alert)",
+                    len(old_hits),
+                    self.cfg.alert_modified_hours,
+                )
+
+            per_user_matches = await run_blocking_io(
+                self.user_watchlist.matches_for_users,
+                [],
+                recent_hits,
+            )
+            for uid, m in per_user_matches.items():
+                log.info(
+                    "WATCHLIST-MATCH  user=%s  papers=%d  probe_hits=%d",
+                    uid,
+                    len(m.papers),
+                    len(m.probe_hits),
+                )
+
+            result = PollResult(
+                diff=DiffResult(new_papers=[], updated_papers=[]),
+                probe_hits=recent_hits,
+                dp_transitions=[],
+                per_user_matches=per_user_matches,
+            )
+            if self.notify_callback:
+                self.notify_callback(result)
             self._last_successful_poll = time.time()
             self._last_probe_stats = self.prober.snapshot_stats()
-            return PollResult(
-                diff=DiffResult(new_papers=[], updated_papers=[]),
-                probe_hits=[],
-            )
+            return result
 
         previous = dict(self._previous_papers)
 
