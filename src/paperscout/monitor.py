@@ -135,9 +135,7 @@ class Scheduler:
         Cold first deploy: no notifications from seed. On restart (prior poll or
         discovered URLs), ``poll_once`` may notify for recent probe hits from this seed cycle.
         """
-        had_prior_state = (
-            self.state.last_poll > 0 or len(self.state.get_all_discovered()) > 0
-        )
+        had_prior_state = self.state.last_poll > 0 or len(self.state.get_all_discovered()) > 0
         t0 = time.monotonic()
         log.info("SEED-START  seeding local database from all sources")
 
