@@ -18,7 +18,7 @@ import httpx
 
 from .config import Settings, settings
 from .errors import FailureCategory
-from .models import Paper, ProbeHit, Tier
+from .models import CycleResult, CycleStatus, Paper, ProbeHit, Tier
 from .storage import PaperCache, ProbeState, UserWatchlist
 
 log = logging.getLogger(__name__)
@@ -309,52 +309,69 @@ class ISOProber:
 
     # ── Public API ───────────────────────────────────────────────────────────
 
-    async def run_cycle(self) -> list[ProbeHit]:
-        """HEAD all scheduled URLs; return recent hits and persist discovery state."""
+    async def run_cycle(self) -> CycleResult:
+        """HEAD all scheduled URLs; return discriminated cycle outcome.
+
+        Per-URL ``error`` stats alone do not fail the cycle if the cycle
+        finished and persisted state; only cycle-level failures return ``FAILED``.
+        """
         self._cycle += 1
         self._reset_stats()
         t0 = time.monotonic()
+        urls: list[_Entry] = []
+        hot_count = 0
+        cold_count = 0
 
-        urls = self._build_probe_list()
-        known_ids = self.index.get_known_paper_ids()
-        hot_count = sum(1 for u in urls if u[1] in (Tier.WATCHLIST, Tier.FRONTIER, Tier.RECENT))
-        cold_count = sum(1 for u in urls if u[1] == Tier.COLD)
-        slice_idx = (self._cycle - 1) % self.cfg.cold_cycle_divisor
-        log.info(
-            "PROBE-START  cycle=%d  total=%d  hot=%d  cold=%d  slice=%d/%d",
-            self._cycle,
-            len(urls),
-            hot_count,
-            cold_count,
-            slice_idx,
-            self.cfg.cold_cycle_divisor,
-        )
+        try:
+            urls = self._build_probe_list()
+            known_ids = self.index.get_known_paper_ids()
+            hot_count = sum(1 for u in urls if u[1] in (Tier.WATCHLIST, Tier.FRONTIER, Tier.RECENT))
+            cold_count = sum(1 for u in urls if u[1] == Tier.COLD)
+            slice_idx = (self._cycle - 1) % self.cfg.cold_cycle_divisor
+            log.info(
+                "PROBE-START  cycle=%d  total=%d  hot=%d  cold=%d  slice=%d/%d",
+                self._cycle,
+                len(urls),
+                hot_count,
+                cold_count,
+                slice_idx,
+                self.cfg.cold_cycle_divisor,
+            )
 
-        sem = asyncio.Semaphore(self.cfg.http_concurrency)
-        hits: list[ProbeHit] = []
+            sem = asyncio.Semaphore(self.cfg.http_concurrency)
+            hits: list[ProbeHit] = []
 
-        async with httpx.AsyncClient(
-            http2=self.cfg.http_use_http2,
-            timeout=self.cfg.http_timeout_seconds,
-            follow_redirects=True,
-        ) as client:
-            tasks = [
-                self._probe_one(client, sem, url, prefix, num, rev, ext, tier, known_ids)
-                for url, tier, prefix, num, rev, ext in urls
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for r in results:
-                if isinstance(r, ProbeHit):
-                    hits.append(r)
-                elif isinstance(r, Exception):
-                    log.debug("Unhandled exception from _probe_one: %s", r)
+            async with httpx.AsyncClient(
+                http2=self.cfg.http_use_http2,
+                timeout=self.cfg.http_timeout_seconds,
+                follow_redirects=True,
+            ) as client:
+                tasks = [
+                    self._probe_one(client, sem, url, prefix, num, rev, ext, tier, known_ids)
+                    for url, tier, prefix, num, rev, ext in urls
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for r in results:
+                    if isinstance(r, ProbeHit):
+                        hits.append(r)
+                    elif isinstance(r, Exception):
+                        log.debug("Unhandled exception from _probe_one: %s", r)
 
-        for hit in hits:
-            lm_ts = hit.last_modified.timestamp() if hit.last_modified else None
-            self.state.mark_discovered(hit.url, last_modified_ts=lm_ts)
+            for hit in hits:
+                lm_ts = hit.last_modified.timestamp() if hit.last_modified else None
+                self.state.mark_discovered(hit.url, last_modified_ts=lm_ts)
 
-        self.state.touch_poll()
-        self.state.save()
+            self.state.touch_poll()
+            self.state.save()
+        except Exception as exc:
+            elapsed = time.monotonic() - t0
+            log.error(
+                "PROBE-FAILED  cycle=%d  elapsed=%.1fs  error=%s",
+                self._cycle,
+                elapsed,
+                exc,
+            )
+            return CycleResult(CycleStatus.FAILED, error=str(exc))
 
         elapsed = time.monotonic() - t0
         s = self.snapshot_stats()
@@ -375,11 +392,25 @@ class ISOProber:
             s["skipped_in_index"],
             s["error"],
         )
+
+        if hits:
+            status = CycleStatus.SUCCESS
+            log.info("PROBE-SUCCESS  cycle=%d  hits=%d", self._cycle, len(hits))
+        else:
+            status = CycleStatus.EMPTY
+            log.info(
+                "PROBE-EMPTY  cycle=%d  total=%d  err=%d",
+                self._cycle,
+                len(urls),
+                s["error"],
+            )
+
         log.info(
             "PROBE-CYCLE-SUMMARY %s",
             json.dumps(
                 {
                     "cycle": self._cycle,
+                    "cycle_status": status.value,
                     "cycle_requests": len(urls),
                     "cycle_duration_s": round(elapsed, 2),
                     "hot_probes": hot_count,
@@ -395,7 +426,9 @@ class ISOProber:
                 }
             ),
         )
-        return hits
+        if status == CycleStatus.SUCCESS:
+            return CycleResult(CycleStatus.SUCCESS, results=tuple(hits))
+        return CycleResult(CycleStatus.EMPTY)
 
     # ── Probe-list builders ──────────────────────────────────────────────────
 

@@ -177,6 +177,28 @@ class ProbeHit:
     is_recent: bool = False
 
 
+class CycleStatus(str, Enum):
+    """Outcome of one ``ISOProber.run_cycle()`` invocation."""
+
+    SUCCESS = "success"
+    EMPTY = "empty"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class CycleResult:
+    """Discriminated probe cycle result (success vs empty vs failed)."""
+
+    status: CycleStatus
+    results: tuple[ProbeHit, ...] = ()
+    error: str | None = None
+
+    @property
+    def hits(self) -> list[ProbeHit]:
+        """Probe hits when ``status`` is ``SUCCESS``; otherwise empty."""
+        return list(self.results) if self.status == CycleStatus.SUCCESS else []
+
+
 @dataclass
 class PerUserMatches:
     """One user's watchlist hits: ``(paper|hit, 'author'|'paper')`` tuples."""

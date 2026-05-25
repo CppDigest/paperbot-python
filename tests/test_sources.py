@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from paperscout.models import Paper
+from paperscout.models import CycleStatus, Paper
 from paperscout.sources import (
     ISOProber,
     WG21Index,
@@ -1089,9 +1089,10 @@ class TestISOProberRunCycle:
         with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            hits = await prober.run_cycle()
+            cycle = await prober.run_cycle()
 
-        assert any(h.number == 9999 for h in hits)
+        assert cycle.status == CycleStatus.SUCCESS
+        assert any(h.number == 9999 for h in cycle.hits)
         assert state.is_discovered(hit_url)
 
     async def test_run_cycle_non_recent_hit_still_discovered(self, fake_pool):
@@ -1124,10 +1125,11 @@ class TestISOProberRunCycle:
         with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            hits = await prober.run_cycle()
+            cycle = await prober.run_cycle()
 
         # Hit is returned (for the discovered registry) but is_recent=False
-        old_hits = [h for h in hits if h.number == 9998]
+        assert cycle.status == CycleStatus.SUCCESS
+        old_hits = [h for h in cycle.hits if h.number == 9998]
         assert len(old_hits) == 1
         assert old_hits[0].is_recent is False
         assert state.is_discovered(hit_url)
@@ -1170,6 +1172,59 @@ class TestISOProberRunCycle:
         )
         assert accounted == len(urls)
         assert s["miss"] == len(urls)  # all 404 in this mock
+
+    async def test_run_cycle_empty(self, fake_pool):
+        """All 404 responses → EMPTY, not FAILED."""
+        index = WG21Index(fake_pool)
+        index._max_p = 100
+        index._max_rev = {99: 0, 100: 0}
+        index._sorted_p_nums = [99, 100]
+        state = ProbeState(fake_pool)
+        cfg = make_test_settings(
+            hot_lookback_months=0,
+            hot_revision_depth=1,
+            frontier_window_above=0,
+            frontier_window_below=0,
+            gap_max_rev=0,
+            cold_cycle_divisor=100,
+        )
+        prober = ISOProber(index, state, user_watchlist=_mock_wl([9999]), cfg=cfg)
+        mock_client = _make_async_client(head_resp=_make_response(404))
+        with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            cycle = await prober.run_cycle()
+        assert cycle.status == CycleStatus.EMPTY
+        assert cycle.hits == []
+        assert cycle.error is None
+
+    async def test_run_cycle_failed(self, fake_pool):
+        """Client context failure → FAILED with error detail."""
+        index = WG21Index(fake_pool)
+        index._max_p = 100
+        index._max_rev = {99: 0, 100: 0}
+        index._sorted_p_nums = [99, 100]
+        state = ProbeState(fake_pool)
+        cfg = make_test_settings(
+            hot_lookback_months=0,
+            hot_revision_depth=1,
+            frontier_window_above=0,
+            frontier_window_below=0,
+            gap_max_rev=0,
+            cold_cycle_divisor=100,
+        )
+        prober = ISOProber(index, state, user_watchlist=_mock_wl([9999]), cfg=cfg)
+
+        with patch("paperscout.sources.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(
+                side_effect=httpx.ConnectError("connection refused")
+            )
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            cycle = await prober.run_cycle()
+
+        assert cycle.status == CycleStatus.FAILED
+        assert cycle.error
+        assert "connection refused" in cycle.error
 
 
 # ── open-std.org scraper ─────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ These components share one thread and the main event loop. They may await I/O bu
 
 - **`Scheduler.run_forever` / `poll_once`** — orchestrates index refresh, probing, and notifications.
 - **`WG21Index.refresh`** — fetches and parses wg21.link index (httpx async).
-- **`ISOProber.run_cycle` / `_probe_one`** — concurrent HEAD probes via `asyncio.gather` and an httpx async client.
+- **`ISOProber.run_cycle` / `_probe_one`** — concurrent HEAD probes via `asyncio.gather` and an httpx async client. `run_cycle` returns a discriminated `CycleResult` (success / empty / failed).
 - **Slack Bolt handlers** — run on Bolt’s thread; they should not read mutable source state directly (use snapshots or health callbacks).
 
 `ISOProber._stats` is updated from many coroutines in one `run_cycle()`. This is safe on the event loop because asyncio never preempts between awaits. A `threading.Lock` guards `_stats` as defense-in-depth if code is ever called from a worker thread by mistake.
@@ -17,7 +17,7 @@ These components share one thread and the main event loop. They may await I/O bu
 
 | Thread | Role |
 |--------|------|
-| **Health server** (`health.py`) | Serves `GET /health`; reads `len(index.papers)` via a callback and scheduler snapshot fields. |
+| **Health server** (`health.py`) | Serves `GET /health`; reads `len(index.papers)` via a callback and scheduler fields from `Scheduler.health_snapshot()` (immutable snapshot, lock-protected publish). |
 | **MessageQueue sender** (`scout.py`) | Drains Slack post queue with rate limiting. |
 | **`run_blocking_io` / `asyncio.to_thread`** | Runs blocking psycopg2 calls (e.g. `UserWatchlist.matches_for_users`) off the loop. |
 

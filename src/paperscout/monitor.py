@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 
 from .concurrency import run_blocking_io
 from .config import Settings, settings
 from .errors import ConfigurationError, FailureCategory
-from .models import Paper, PerUserMatches, ProbeHit
+from .models import CycleResult, CycleStatus, Paper, PerUserMatches, ProbeHit
 from .sources import ISOProber, WG21Index
 from .storage import ProbeState, UserWatchlist
 
@@ -99,6 +102,40 @@ class PollResult:
         self.per_user_matches = per_user_matches or {}
 
 
+# ── Health snapshot (issue 04) ───────────────────────────────────────────────
+
+
+def _compute_probe_success_rate(stats: dict[str, int]) -> float | None:
+    """HTTP 200 outcomes / non-skipped probe attempts."""
+    hits = stats.get("hit_recent", 0) + stats.get("hit_old", 0) + stats.get("hit_no_lm", 0)
+    attempted = hits + stats.get("miss", 0) + stats.get("error", 0)
+    return hits / attempted if attempted > 0 else None
+
+
+@dataclass(frozen=True, slots=True)
+class SchedulerSnapshot:
+    """Immutable scheduler state published for the health endpoint."""
+
+    last_updated: str
+    poll_count: int
+    last_successful_poll: str | None
+    last_cycle_status: str | None
+    last_cycle_error: str | None
+    probe_stats: dict[str, int]
+    probe_success_rate: float | None
+
+
+_HEALTH_SNAPSHOT_DEFAULTS: dict[str, Any] = {
+    "last_updated": None,
+    "poll_count": 0,
+    "last_successful_poll": None,
+    "last_cycle_status": None,
+    "last_cycle_error": None,
+    "probe_stats": {},
+    "probe_success_rate": None,
+}
+
+
 # ── Scheduler ────────────────────────────────────────────────────────────────
 
 
@@ -127,7 +164,60 @@ class Scheduler:
         self._poll_count = 0
         self._last_successful_poll: float | None = None
         self._last_probe_stats: dict[str, int] = {}
+        self._last_cycle_status: CycleStatus | None = None
+        self._last_cycle_error: str | None = None
         self._last_ops_alert: float | None = None
+        self._health_lock = threading.Lock()
+        self._health_snapshot: SchedulerSnapshot | None = None
+
+    def _probe_hits_from_cycle(self, cycle: CycleResult) -> list[ProbeHit]:
+        """Extract hits and record last cycle status for health / staleness."""
+        self._last_cycle_status = cycle.status
+        self._last_cycle_error = cycle.error
+        match cycle.status:
+            case CycleStatus.SUCCESS:
+                return cycle.hits
+            case CycleStatus.EMPTY:
+                log.info("POLL  probe cycle empty")
+                return []
+            case CycleStatus.FAILED:
+                log.error("POLL  probe cycle failed: %s", cycle.error)
+                return []
+
+    def _record_probe_cycle_completion(self) -> None:
+        """Update probe stats after any completed cycle (including FAILED)."""
+        self._last_probe_stats = self.prober.snapshot_stats()
+
+    def _mark_poll_successful_if_probe_ok(self) -> None:
+        """Advance staleness clock only when the last probe cycle did not fail."""
+        if self._last_cycle_status is not CycleStatus.FAILED:
+            self._last_successful_poll = time.time()
+
+    def _publish_health_snapshot(self) -> None:
+        """Publish immutable snapshot for cross-thread health reads (event loop only)."""
+        lsp = self._last_successful_poll
+        stats = dict(self._last_probe_stats)
+        snap = SchedulerSnapshot(
+            last_updated=datetime.now(timezone.utc).isoformat(),
+            poll_count=self._poll_count,
+            last_successful_poll=(
+                datetime.fromtimestamp(lsp, tz=timezone.utc).isoformat() if lsp else None
+            ),
+            last_cycle_status=(self._last_cycle_status.value if self._last_cycle_status else None),
+            last_cycle_error=self._last_cycle_error,
+            probe_stats=stats,
+            probe_success_rate=_compute_probe_success_rate(stats),
+        )
+        with self._health_lock:
+            self._health_snapshot = snap
+
+    def health_snapshot(self) -> dict[str, Any]:
+        """Return a consistent copy of scheduler fields for ``/health`` extras."""
+        with self._health_lock:
+            snap = self._health_snapshot
+        if snap is None:
+            return dict(_HEALTH_SNAPSHOT_DEFAULTS)
+        return dataclasses.asdict(snap)
 
     async def seed(self) -> SeedResult:
         """Gather current index and probe state.
@@ -147,7 +237,9 @@ class Scheduler:
 
         hits: list[ProbeHit] = []
         if self.cfg.enable_iso_probe:
-            hits = await self.prober.run_cycle()
+            cycle = await self.prober.run_cycle()
+            hits = self._probe_hits_from_cycle(cycle)
+            self._record_probe_cycle_completion()
             log.info("SEED  isocpp.org probe  existing=%d", len(hits))
 
         self._seeded = True
@@ -169,8 +261,13 @@ class Scheduler:
         if not self._seeded:
             seed_result = await self.seed()
             if not seed_result.had_prior_state:
-                self._last_successful_poll = time.time()
-                self._last_probe_stats = self.prober.snapshot_stats()
+                if self.cfg.enable_iso_probe:
+                    self._mark_poll_successful_if_probe_ok()
+                    self._record_probe_cycle_completion()
+                else:
+                    self._last_successful_poll = time.time()
+                    self._record_probe_cycle_completion()
+                self._publish_health_snapshot()
                 return PollResult(
                     diff=DiffResult(new_papers=[], updated_papers=[]),
                     probe_hits=[],
@@ -208,8 +305,13 @@ class Scheduler:
             )
             if self.notify_callback:
                 self.notify_callback(result)
-            self._last_successful_poll = time.time()
-            self._last_probe_stats = self.prober.snapshot_stats()
+            if self.cfg.enable_iso_probe:
+                self._mark_poll_successful_if_probe_ok()
+                self._record_probe_cycle_completion()
+            else:
+                self._last_successful_poll = time.time()
+                self._record_probe_cycle_completion()
+            self._publish_health_snapshot()
             return result
 
         previous = dict(self._previous_papers)
@@ -239,7 +341,9 @@ class Scheduler:
 
         probe_hits: list[ProbeHit] = []
         if self.cfg.enable_iso_probe:
-            probe_hits = await self.prober.run_cycle()
+            cycle = await self.prober.run_cycle()
+            probe_hits = self._probe_hits_from_cycle(cycle)
+            self._record_probe_cycle_completion()
 
         recent_hits = [h for h in probe_hits if h.is_recent]
         old_hits = [h for h in probe_hits if not h.is_recent]
@@ -324,8 +428,13 @@ class Scheduler:
             len(dp_transitions),
             len(per_user_matches),
         )
-        self._last_successful_poll = time.time()
-        self._last_probe_stats = self.prober.snapshot_stats()
+        if self.cfg.enable_iso_probe:
+            self._mark_poll_successful_if_probe_ok()
+            self._record_probe_cycle_completion()
+        else:
+            self._last_successful_poll = time.time()
+            self._record_probe_cycle_completion()
+        self._publish_health_snapshot()
         return result
 
     async def run_forever(self) -> None:
