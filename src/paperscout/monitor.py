@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import dataclasses
 import logging
-import copy
 import threading
 import time
 from collections.abc import Callable
@@ -108,9 +108,7 @@ class PollResult:
 
 def _compute_probe_success_rate(stats: dict[str, int]) -> float | None:
     """HTTP 200 outcomes / non-skipped probe attempts."""
-    hits = (
-        stats.get("hit_recent", 0) + stats.get("hit_old", 0) + stats.get("hit_no_lm", 0)
-    )
+    hits = stats.get("hit_recent", 0) + stats.get("hit_old", 0) + stats.get("hit_no_lm", 0)
     attempted = hits + stats.get("miss", 0) + stats.get("error", 0)
     return hits / attempted if attempted > 0 else None
 
@@ -204,13 +202,9 @@ class Scheduler:
             last_updated=datetime.now(timezone.utc).isoformat(),
             poll_count=self._poll_count,
             last_successful_poll=(
-                datetime.fromtimestamp(lsp, tz=timezone.utc).isoformat()
-                if lsp
-                else None
+                datetime.fromtimestamp(lsp, tz=timezone.utc).isoformat() if lsp else None
             ),
-            last_cycle_status=(
-                self._last_cycle_status.value if self._last_cycle_status else None
-            ),
+            last_cycle_status=(self._last_cycle_status.value if self._last_cycle_status else None),
             last_cycle_error=self._last_cycle_error,
             probe_stats=stats,
             probe_success_rate=_compute_probe_success_rate(stats),
@@ -232,9 +226,7 @@ class Scheduler:
         Cold first deploy: no notifications from seed. On restart (prior poll or
         discovered URLs), ``poll_once`` may notify for recent probe hits from this seed cycle.
         """
-        had_prior_state = (
-            self.state.last_poll > 0 or len(self.state.get_all_discovered()) > 0
-        )
+        had_prior_state = self.state.last_poll > 0 or len(self.state.get_all_discovered()) > 0
         t0 = time.monotonic()
         log.info("SEED-START  seeding local database from all sources")
 
@@ -389,16 +381,12 @@ class Scheduler:
                         paper.id,
                         d_url,
                         (
-                            datetime.fromtimestamp(lm_ts, tz=timezone.utc).strftime(
-                                "%Y-%m-%d"
-                            )
+                            datetime.fromtimestamp(lm_ts, tz=timezone.utc).strftime("%Y-%m-%d")
                             if lm_ts
                             else "unknown"
                         ),
                         (
-                            datetime.fromtimestamp(disc_ts, tz=timezone.utc).strftime(
-                                "%Y-%m-%d"
-                            )
+                            datetime.fromtimestamp(disc_ts, tz=timezone.utc).strftime("%Y-%m-%d")
                             if disc_ts
                             else "unknown"
                         ),
@@ -522,8 +510,7 @@ class Scheduler:
                     # Never completed a poll: treat as stale from loop start.
                     stale = now_wall - run_started_wall
                 if stale > alert_threshold and (
-                    self._last_ops_alert is None
-                    or (now_m - self._last_ops_alert) > interval
+                    self._last_ops_alert is None or (now_m - self._last_ops_alert) > interval
                 ):
                     try:
                         self.ops_alert_fn(
