@@ -21,6 +21,15 @@ def _slack_error(status: int, headers: dict | None = None) -> SlackApiError:
 class TestMessageQueueDirect:
     """Exercise ``_throttle`` / ``_send_with_retry`` without starting the daemon thread."""
 
+    def test_health_fields_reports_depth_and_utilization(self):
+        mq = MessageQueue(MagicMock())
+        mq.enqueue("C1", "x")
+        fields = mq.health_fields()
+        assert fields["mq_depth"] == 1
+        assert fields["mq_max_size"] >= 1
+        assert 0.0 <= fields["mq_utilization"] <= 1.0
+        assert fields["mq_circuit_state"] == "closed"
+
     def test_send_success_updates_last_send(self):
         app = MagicMock()
         mq = MessageQueue(app)

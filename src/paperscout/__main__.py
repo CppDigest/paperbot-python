@@ -27,6 +27,53 @@ from .storage import ProbeState, UserWatchlist
 
 log = logging.getLogger("paperscout")
 
+# MessageQueue keys allowed in /health extras (must not overlap scheduler.health_snapshot()).
+_MQ_HEALTH_FIELD_NAMES = frozenset(
+    {
+        "mq_depth",
+        "mq_max_size",
+        "mq_utilization",
+        "mq_circuit_state",
+    }
+)
+
+
+def _mq_health_fields(mq: MessageQueue) -> dict:
+    """MQ metrics for /health; from health_fields() when present, else depth only."""
+    if hasattr(mq, "health_fields"):
+        raw = mq.health_fields()
+        if isinstance(raw, dict):
+            return raw
+        log.warning("health: mq.health_fields() returned non-dict, using mq_depth only")
+    return {"mq_depth": mq.depth()}
+
+
+def _merge_extra_health_fields(
+    scheduler_snap: dict,
+    mq_extra: dict,
+    db_pool: dict,
+) -> dict:
+    """Merge health JSON with scheduler winning on key conflicts."""
+    scheduler_keys = set(scheduler_snap)
+    mq_filtered: dict = {}
+    for key, value in mq_extra.items():
+        if key in _MQ_HEALTH_FIELD_NAMES:
+            if key in scheduler_keys:
+                log.debug(
+                    "health: mq_extra key %r conflicts with scheduler snapshot; scheduler wins",
+                    key,
+                )
+            else:
+                mq_filtered[key] = value
+        elif key in scheduler_keys:
+            log.debug(
+                "health: mq_extra key %r not allow-listed; scheduler snapshot kept",
+                key,
+            )
+        else:
+            log.debug("health: mq_extra key %r not allow-listed, dropping", key)
+    return {**scheduler_snap, **mq_filtered, "db_pool": db_pool}
+
 
 def _setup_logging(data_dir: Path, console_level: str = "INFO", retention_days: int = 7) -> None:
     """Console + daily rotating file logging; third-party loggers capped at WARNING."""
@@ -141,8 +188,11 @@ async def _async_main() -> None:
     )
 
     def _extra_health_fields() -> dict:
-        mq_extra = mq.health_fields() if hasattr(mq, "health_fields") else {"mq_depth": mq.depth()}
-        return {**scheduler.health_snapshot(), **mq_extra, "db_pool": _pool_status(pool)}
+        return _merge_extra_health_fields(
+            scheduler.health_snapshot(),
+            _mq_health_fields(mq),
+            _pool_status(pool),
+        )
 
     register_handlers(app, user_watchlist, state, paper_count_fn, launch_time)
 

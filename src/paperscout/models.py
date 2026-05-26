@@ -198,6 +198,16 @@ class CycleResult:
         """Probe hits when ``status`` is ``SUCCESS``; otherwise empty."""
         return list(self.results) if self.status == CycleStatus.SUCCESS else []
 
+    def __post_init__(self) -> None:
+        if self.status == CycleStatus.FAILED and not self.error:
+            raise ValueError("CycleResult FAILED must carry a non-empty error string")
+        if self.status == CycleStatus.SUCCESS and not self.results:
+            raise ValueError("CycleResult SUCCESS must carry at least one ProbeHit")
+        if self.status == CycleStatus.EMPTY and self.results:
+            raise ValueError("CycleResult EMPTY must not carry results")
+        if self.status != CycleStatus.FAILED and self.error is not None:
+            raise ValueError("CycleResult error is only valid for FAILED status")
+
 
 @dataclass
 class PerUserMatches:

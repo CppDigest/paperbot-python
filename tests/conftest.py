@@ -238,6 +238,10 @@ def make_test_settings(**overrides) -> Settings:
         notify_on_frontier_hit=True,
         notify_on_any_draft=True,
         notify_on_dp_transition=True,
+        mq_max_size=100,
+        mq_max_retries=3,
+        mq_circuit_breaker_threshold=5,
+        mq_circuit_breaker_cooldown_seconds=60,
         data_dir=Path(tempfile.mkdtemp(prefix="paperscout-test-")),
         cache_ttl_hours=1,
     )

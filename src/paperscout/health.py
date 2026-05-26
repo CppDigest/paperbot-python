@@ -61,7 +61,9 @@ class _HealthHandler(BaseHTTPRequestHandler):
         except Exception:
             log.exception("health: extra_fields_fn failed")
             extra = {}
-        body = json.dumps({**base, **extra}).encode()
+        # Base handler fields win if extra_fields_fn returns overlapping keys.
+        safe_extra = {k: v for k, v in extra.items() if k not in base}
+        body = json.dumps({**base, **safe_extra}).encode()
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

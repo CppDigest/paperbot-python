@@ -559,6 +559,27 @@ class TestScheduler:
         assert snap["last_updated"] is not None
         assert snap["poll_count"] >= 1
 
+    def test_health_snapshot_defaults_are_independent_copies(self, fake_pool):
+        scheduler, _, _, _, _ = _make_scheduler(fake_pool)
+        a = scheduler.health_snapshot()
+        b = scheduler.health_snapshot()
+        a["probe_stats"]["miss"] = 999
+        assert b["probe_stats"] == {}
+        assert a is not b
+
+    async def test_publish_health_snapshot_probe_stats_readonly(self, fake_pool):
+        from paperscout.monitor import SchedulerSnapshot
+
+        scheduler, _, prober, _, _ = _make_scheduler(fake_pool)
+        prober.snapshot_stats = MagicMock(return_value={"miss": 1, "error": 0})
+        await scheduler.poll_once()
+        with scheduler._health_lock:
+            stored = scheduler._health_snapshot
+        assert isinstance(stored, SchedulerSnapshot)
+        with pytest.raises(TypeError):
+            stored.probe_stats["miss"] = 999  # type: ignore[index]
+        assert scheduler.health_snapshot()["probe_stats"]["miss"] == 1
+
     async def test_run_forever_halts_on_configuration_error(self, fake_pool, caplog):
         scheduler, _, _, _, _ = _make_scheduler(fake_pool, poll_interval_minutes=30)
 

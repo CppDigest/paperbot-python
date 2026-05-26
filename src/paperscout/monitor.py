@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import dataclasses
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
 import httpx
@@ -115,14 +115,18 @@ def _compute_probe_success_rate(stats: dict[str, int]) -> float | None:
 
 @dataclass(frozen=True, slots=True)
 class SchedulerSnapshot:
-    """Immutable scheduler state published for the health endpoint."""
+    """Immutable scheduler state published for the health endpoint.
+
+    ``probe_stats`` is a read-only ``MappingProxyType`` view so callers cannot
+    mutate stats through the frozen snapshot object.
+    """
 
     last_updated: str
     poll_count: int
     last_successful_poll: str | None
     last_cycle_status: str | None
     last_cycle_error: str | None
-    probe_stats: dict[str, int]
+    probe_stats: Mapping[str, int]
     probe_success_rate: float | None
 
 
@@ -175,15 +179,16 @@ class Scheduler:
         """Extract hits and record last cycle status for health / staleness."""
         self._last_cycle_status = cycle.status
         self._last_cycle_error = cycle.error
-        match cycle.status:
-            case CycleStatus.SUCCESS:
-                return cycle.hits
-            case CycleStatus.EMPTY:
-                log.info("POLL  probe cycle empty")
-                return []
-            case CycleStatus.FAILED:
-                log.error("POLL  probe cycle failed: %s", cycle.error)
-                return []
+        if cycle.status is CycleStatus.SUCCESS:
+            return cycle.hits
+        if cycle.status is CycleStatus.EMPTY:
+            log.info("POLL  probe cycle empty")
+            return []
+        if cycle.status is CycleStatus.FAILED:
+            log.error("POLL  probe cycle failed: %s", cycle.error)
+            return []
+        log.error("POLL  unknown cycle status: %s", cycle.status)
+        return []
 
     def _record_probe_cycle_completion(self) -> None:
         """Update probe stats after any completed cycle (including FAILED)."""
@@ -206,7 +211,7 @@ class Scheduler:
             ),
             last_cycle_status=(self._last_cycle_status.value if self._last_cycle_status else None),
             last_cycle_error=self._last_cycle_error,
-            probe_stats=stats,
+            probe_stats=MappingProxyType(stats),
             probe_success_rate=_compute_probe_success_rate(stats),
         )
         with self._health_lock:
@@ -218,7 +223,16 @@ class Scheduler:
             snap = self._health_snapshot
         if snap is None:
             return copy.deepcopy(_HEALTH_SNAPSHOT_DEFAULTS)
-        return dataclasses.asdict(snap)
+        # Build explicitly: probe_stats is a MappingProxyType (not deepcopy-able via asdict).
+        return {
+            "last_updated": snap.last_updated,
+            "poll_count": snap.poll_count,
+            "last_successful_poll": snap.last_successful_poll,
+            "last_cycle_status": snap.last_cycle_status,
+            "last_cycle_error": snap.last_cycle_error,
+            "probe_stats": dict(snap.probe_stats),
+            "probe_success_rate": snap.probe_success_rate,
+        }
 
     async def seed(self) -> SeedResult:
         """Gather current index and probe state.
@@ -263,8 +277,8 @@ class Scheduler:
             seed_result = await self.seed()
             if not seed_result.had_prior_state:
                 if self.cfg.enable_iso_probe:
+                    # Stats already recorded in seed() after run_cycle.
                     self._mark_poll_successful_if_probe_ok()
-                    self._record_probe_cycle_completion()
                 else:
                     self._last_successful_poll = time.time()
                     self._record_probe_cycle_completion()
@@ -307,8 +321,8 @@ class Scheduler:
             if self.notify_callback:
                 self.notify_callback(result)
             if self.cfg.enable_iso_probe:
+                # Stats already recorded in seed() after run_cycle.
                 self._mark_poll_successful_if_probe_ok()
-                self._record_probe_cycle_completion()
             else:
                 self._last_successful_poll = time.time()
                 self._record_probe_cycle_completion()
@@ -434,8 +448,8 @@ class Scheduler:
             len(per_user_matches),
         )
         if self.cfg.enable_iso_probe:
+            # Stats already recorded above after run_cycle.
             self._mark_poll_successful_if_probe_ok()
-            self._record_probe_cycle_completion()
         else:
             self._last_successful_poll = time.time()
             self._record_probe_cycle_completion()

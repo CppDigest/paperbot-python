@@ -170,6 +170,53 @@ class _ConcurrentSnapshotPublisher:
         self._stop.set()
 
 
+class TestHealthExtraFieldsSafety:
+    def test_extra_fields_cannot_overwrite_base_handler_keys(self):
+        port = _find_free_port()
+        launch = datetime(2026, 3, 16, 10, 0, 0, tzinfo=timezone.utc)
+        state = _FakeState()
+        server = start_health_server(
+            port,
+            launch,
+            state,
+            lambda: 42,
+            extra_fields_fn=lambda: {
+                "version": "evil",
+                "uptime_seconds": -1,
+                "mq_depth": 2,
+            },
+        )
+        try:
+            data = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/health").read())
+            assert data["version"] != "evil"
+            assert data["uptime_seconds"] >= 0
+            assert data["mq_depth"] == 2
+        finally:
+            server.shutdown()
+
+    def test_extra_fields_fn_failure_returns_base_only(self):
+        port = _find_free_port()
+        launch = datetime(2026, 3, 16, 10, 0, 0, tzinfo=timezone.utc)
+
+        def _boom():
+            raise RuntimeError("snapshot unavailable")
+
+        server = start_health_server(
+            port,
+            launch,
+            _FakeState(),
+            lambda: 0,
+            extra_fields_fn=_boom,
+        )
+        try:
+            data = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/health").read())
+            assert "version" in data
+            assert "last_poll" in data
+            assert "last_updated" not in data
+        finally:
+            server.shutdown()
+
+
 class TestHealthSnapshotConcurrency:
     def test_health_snapshot_consistent_under_concurrent_updates(self):
         port = _find_free_port()

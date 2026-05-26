@@ -661,7 +661,6 @@ class ISOProber:
                 last_modified=last_modified,
                 is_recent=is_recent,
             )
-        return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
