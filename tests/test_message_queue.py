@@ -30,6 +30,16 @@ class TestMessageQueueDirect:
         assert 0.0 <= fields["mq_utilization"] <= 1.0
         assert fields["mq_circuit_state"] == "closed"
 
+    def test_health_fields_clamps_utilization_when_depth_exceeds_max(self):
+        mq = MessageQueue(MagicMock())
+        with patch("paperscout.scout.settings") as cfg:
+            cfg.mq_max_size = 2
+            for i in range(5):
+                mq.enqueue(f"C{i}", "x")
+            fields = mq.health_fields()
+        assert fields["mq_depth"] == 5
+        assert fields["mq_utilization"] == 1.0
+
     def test_send_success_updates_last_send(self):
         app = MagicMock()
         mq = MessageQueue(app)

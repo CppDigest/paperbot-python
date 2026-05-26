@@ -59,10 +59,12 @@ class MessageQueue:
         """Metrics for the ``/health`` endpoint (merged by ``__main__``)."""
         d = self.depth()
         m = settings.mq_max_size
+        utilization = (d / m) if m else 0.0
+        utilization = min(1.0, max(0.0, utilization))
         return {
             "mq_depth": d,
             "mq_max_size": m,
-            "mq_utilization": round(d / m, 4) if m else 0.0,
+            "mq_utilization": round(utilization, 4),
             "mq_circuit_state": "closed",
         }
 

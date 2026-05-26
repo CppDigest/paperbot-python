@@ -41,7 +41,17 @@ _MQ_HEALTH_FIELD_NAMES = frozenset(
 def _mq_health_fields(mq: MessageQueue) -> dict:
     """MQ metrics for /health; from health_fields() when present, else depth only."""
     if hasattr(mq, "health_fields"):
-        raw = mq.health_fields()
+        try:
+            raw = mq.health_fields()
+        except Exception as exc:
+            log.warning(
+                "health: mq.health_fields() failed for %s id=%s: %s",
+                type(mq).__name__,
+                id(mq),
+                exc,
+                exc_info=True,
+            )
+            return {"mq_depth": mq.depth()}
         if isinstance(raw, dict):
             return raw
         log.warning("health: mq.health_fields() returned non-dict, using mq_depth only")

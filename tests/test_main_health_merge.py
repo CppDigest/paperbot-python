@@ -39,6 +39,16 @@ def test_merge_drops_unknown_mq_keys(caplog):
     assert any("not allow-listed" in r.message for r in caplog.records)
 
 
+def test_mq_health_fields_falls_back_on_exception(caplog):
+    mq = MagicMock()
+    mq.health_fields.side_effect = RuntimeError("boom")
+    mq.depth.return_value = 7
+    with caplog.at_level(logging.WARNING, logger="paperscout"):
+        fields = _mq_health_fields(mq)
+    assert fields == {"mq_depth": 7}
+    assert any("health_fields() failed" in r.message for r in caplog.records)
+
+
 def test_mq_health_fields_uses_health_fields_method():
     mq = MessageQueue(MagicMock())
     fields = _mq_health_fields(mq)
@@ -59,3 +69,5 @@ def test_merge_includes_allowlisted_mq_fields():
     out = _merge_extra_health_fields(scheduler, mq_extra, {})
     assert out["mq_depth"] == 2
     assert out["mq_max_size"] == 1000
+    assert out["mq_utilization"] == 0.002
+    assert out["mq_circuit_state"] == "closed"
