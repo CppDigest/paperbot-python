@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-
 from unittest.mock import MagicMock
 
 from paperscout.__main__ import _merge_extra_health_fields, _mq_health_fields
