@@ -214,7 +214,8 @@ class MessageQueue:
                             _payload_meta(dropped_text, dropped_kwargs),
                         )
                     except queue.Empty:
-                        break
+                        # Consumer may have taken an item between Full and get_nowait; retry put.
+                        continue
             if max_size > 0:
                 depth = self._q.qsize()
                 high = 0.8 * max_size

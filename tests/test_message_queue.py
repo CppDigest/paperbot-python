@@ -260,6 +260,29 @@ class TestMessageQueueBounded:
         assert "msg-0" not in texts
         assert "newest" in texts
 
+    def test_enqueue_retries_put_when_get_nowait_empty_after_full(self, mq_settings):
+        """Full then Empty on drop path must retry put, not silently discard the new item."""
+        mq = MessageQueue(MagicMock())
+        real_put = mq._q.put_nowait
+        put_attempts = 0
+
+        def put_side_effect(item):
+            nonlocal put_attempts
+            put_attempts += 1
+            if put_attempts == 1:
+                raise queue.Full
+            return real_put(item)
+
+        with patch.object(mq._q, "put_nowait", side_effect=put_side_effect):
+            with patch.object(mq._q, "get_nowait", side_effect=queue.Empty):
+                assert mq.enqueue("C", "new-item") is True
+
+        assert put_attempts == 2
+        assert mq.depth() == 1
+        with mq._queue_lock:
+            _, text, _ = mq._q.get_nowait()
+        assert text == "new-item"
+
     def test_enqueue_rejected_when_circuit_open(self, mq_settings, caplog):
         app = MagicMock()
         mq = MessageQueue(app)
