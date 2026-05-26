@@ -156,14 +156,16 @@ class MessageQueue:
             return self._q.qsize()
 
     def health_fields(self) -> dict[str, Any]:
-        """Metrics for the /health endpoint (merged by ``__main__`` when PR A is present)."""
+        """Metrics for the ``/health`` endpoint (merged by ``__main__``)."""
         d = self.depth()
         m = settings.mq_max_size
+        utilization = (d / m) if m else 0.0
+        utilization = min(1.0, max(0.0, utilization))
         return {
             "mq_depth": d,
             "mq_max_size": m,
-            "mq_utilization": round(d / m, 4) if m else 0.0,
-            "mq_circuit_state": self._breaker.state.value,
+            "mq_utilization": round(utilization, 4),
+            "mq_circuit_state": "closed",
         }
 
     def enqueue(self, channel: str, text: str, **kwargs) -> bool:
@@ -190,7 +192,6 @@ class MessageQueue:
                 except queue.Empty:
                     pass
             self._q.put_nowait(item)
-
         self._maybe_warn_high_water()
         return True
 
