@@ -7,6 +7,7 @@ import queue
 import threading
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 from slack_bolt import App
 from slack_sdk.errors import SlackApiError
@@ -53,6 +54,19 @@ class MessageQueue:
     def depth(self) -> int:
         """Approximate number of messages waiting to be sent (see ``queue.Queue.qsize``)."""
         return self._q.qsize()
+
+    def health_fields(self) -> dict[str, Any]:
+        """Metrics for the ``/health`` endpoint (merged by ``__main__``)."""
+        d = self.depth()
+        m = settings.mq_max_size
+        utilization = (d / m) if m else 0.0
+        utilization = min(1.0, max(0.0, utilization))
+        return {
+            "mq_depth": d,
+            "mq_max_size": m,
+            "mq_utilization": round(utilization, 4),
+            "mq_circuit_state": "closed",
+        }
 
     def enqueue(self, channel: str, text: str, **kwargs) -> None:
         """Queue a ``chat.postMessage`` for *channel* (or user id for DMs)."""

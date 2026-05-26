@@ -27,6 +27,74 @@ from .storage import ProbeState, UserWatchlist
 
 log = logging.getLogger("paperscout")
 
+# MessageQueue keys allowed in /health extras (must not overlap scheduler.health_snapshot()).
+_MQ_HEALTH_FIELD_NAMES = frozenset(
+    {
+        "mq_depth",
+        "mq_max_size",
+        "mq_utilization",
+        "mq_circuit_state",
+    }
+)
+
+
+def _mq_health_fields(mq: MessageQueue) -> dict:
+    """MQ metrics for /health; from health_fields() when present, else depth only."""
+    if hasattr(mq, "health_fields"):
+        try:
+            raw = mq.health_fields()
+        except Exception as exc:
+            log.warning(
+                "health: mq.health_fields() failed for %s id=%s: %s",
+                type(mq).__name__,
+                id(mq),
+                exc,
+                exc_info=True,
+            )
+            try:
+                return {"mq_depth": mq.depth()}
+            except Exception:
+                log.warning(
+                    "health: mq.depth() fallback failed; omitting MQ fields",
+                    exc_info=True,
+                )
+                return {}
+        if isinstance(raw, dict):
+            return raw
+        log.warning("health: mq.health_fields() returned non-dict, using mq_depth only")
+    try:
+        return {"mq_depth": mq.depth()}
+    except Exception:
+        log.warning("health: mq.depth() failed; omitting MQ fields", exc_info=True)
+        return {}
+
+
+def _merge_extra_health_fields(
+    scheduler_snap: dict,
+    mq_extra: dict,
+    db_pool: dict,
+) -> dict:
+    """Merge health JSON with scheduler winning on key conflicts."""
+    scheduler_keys = set(scheduler_snap)
+    mq_filtered: dict = {}
+    for key, value in mq_extra.items():
+        if key in _MQ_HEALTH_FIELD_NAMES:
+            if key in scheduler_keys:
+                log.debug(
+                    "health: mq_extra key %r conflicts with scheduler snapshot; scheduler wins",
+                    key,
+                )
+            else:
+                mq_filtered[key] = value
+        elif key in scheduler_keys:
+            log.debug(
+                "health: mq_extra key %r not allow-listed; scheduler snapshot kept",
+                key,
+            )
+        else:
+            log.debug("health: mq_extra key %r not allow-listed, dropping", key)
+    return {**scheduler_snap, **mq_filtered, "db_pool": db_pool}
+
 
 def _setup_logging(data_dir: Path, console_level: str = "INFO", retention_days: int = 7) -> None:
     """Console + daily rotating file logging; third-party loggers capped at WARNING."""
@@ -141,20 +209,11 @@ async def _async_main() -> None:
     )
 
     def _extra_health_fields() -> dict:
-        lsp = scheduler._last_successful_poll
-        s = scheduler._last_probe_stats
-        # HTTP 200 outcomes / non-skipped probe attempts (excludes skipped_discovered, skipped_in_index).
-        hits = s.get("hit_recent", 0) + s.get("hit_old", 0) + s.get("hit_no_lm", 0)
-        attempted = hits + s.get("miss", 0) + s.get("error", 0)
-        probe_success_rate = hits / attempted if attempted > 0 else None
-        return {
-            "last_successful_poll": (
-                datetime.fromtimestamp(lsp, tz=timezone.utc).isoformat() if lsp else None
-            ),
-            "probe_success_rate": probe_success_rate,
-            "mq_depth": mq.depth(),
-            "db_pool": _pool_status(pool),
-        }
+        return _merge_extra_health_fields(
+            scheduler.health_snapshot(),
+            _mq_health_fields(mq),
+            _pool_status(pool),
+        )
 
     register_handlers(app, user_watchlist, state, paper_count_fn, launch_time)
 
