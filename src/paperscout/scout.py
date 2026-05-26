@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import queue
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 
 from slack_bolt import App
@@ -34,16 +37,132 @@ SLACK_MAX_TEXT = 3000
 # ── Message Queue ─────────────────────────────────────────────────────────────
 
 
+def _redact_channel(channel: str) -> str:
+    """Short stable token for logs (no raw Slack channel/user id)."""
+    digest = hashlib.sha256(channel.encode()).hexdigest()
+    return f"ch:{digest[:8]}"
+
+
+def _payload_meta(text: str, kwargs: dict | None = None) -> str:
+    """Log-safe payload summary (length and kwargs keys only)."""
+    parts = [f"text_len={len(text)}"]
+    if kwargs:
+        parts.append(f"kwargs_keys={','.join(sorted(kwargs))}")
+    return " ".join(parts)
+
+
+def _parse_retry_after(raw: str | None) -> int:
+    """Parse Slack ``Retry-After`` (seconds only); default 5 on invalid values."""
+    if raw is None:
+        return 5
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        log.warning("MQ  invalid-retry-after  value=%r  using=5s", raw)
+        return 5
+
+
+def _log_enqueue_rejected(context: str) -> None:
+    """Caller-side hint when ``enqueue()`` returns False (circuit already logged in MQ)."""
+    log.warning("MQ  notify-enqueue-rejected  context=%s", context)
+
+
+class CircuitState(str, Enum):
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+
+@dataclass(frozen=True, slots=True)
+class RetryPolicy:
+    """Per-message 429 retry cap (from settings)."""
+
+    max_retries: int
+
+
+class CircuitBreaker:
+    """Consecutive-failure circuit breaker with cooldown and half-open probe."""
+
+    def __init__(
+        self,
+        threshold: int,
+        cooldown_seconds: int,
+    ) -> None:
+        self._threshold = threshold
+        self._cooldown_seconds = cooldown_seconds
+        self._lock = threading.Lock()
+        self._state = CircuitState.CLOSED
+        self._consecutive_failures = 0
+        self._opened_at: float | None = None
+
+    @property
+    def state(self) -> CircuitState:
+        with self._lock:
+            return self._state
+
+    @property
+    def consecutive_failures(self) -> int:
+        with self._lock:
+            return self._consecutive_failures
+
+    def record_success(self) -> None:
+        with self._lock:
+            self._consecutive_failures = 0
+            self._state = CircuitState.CLOSED
+            self._opened_at = None
+
+    def record_failure(self) -> None:
+        with self._lock:
+            self._consecutive_failures += 1
+            if self._state == CircuitState.HALF_OPEN:
+                self._trip_locked()
+                return
+            if self._consecutive_failures >= self._threshold:
+                self._trip_locked()
+
+    def _trip_locked(self) -> None:
+        """Trip to OPEN; caller must hold ``_lock``."""
+        self._state = CircuitState.OPEN
+        self._opened_at = time.monotonic()
+        log.error(
+            "MQ-CIRCUIT-OPEN  failures=%d  cooldown=%ds",
+            self._consecutive_failures,
+            self._cooldown_seconds,
+        )
+
+    def allow_send(self) -> bool:
+        """Return whether a send attempt may proceed (may transition OPEN → HALF_OPEN)."""
+        with self._lock:
+            if self._state in (CircuitState.CLOSED, CircuitState.HALF_OPEN):
+                return True
+            if self._opened_at is None:
+                return True
+            elapsed = time.monotonic() - self._opened_at
+            if elapsed >= self._cooldown_seconds:
+                self._state = CircuitState.HALF_OPEN
+                log.info("MQ-CIRCUIT-HALF-OPEN  probing after cooldown")
+                return True
+            return False
+
+
 class MessageQueue:
-    """Background queue for Slack posts: per-channel throttle and 429 retry-after."""
+    """Background queue for Slack posts: throttle, capped 429 retries, circuit breaker."""
 
     def __init__(self, app: App):
         self._app = app
-        self._q: queue.Queue[tuple[str, str, dict]] = queue.Queue()
-        # Maps channel → Unix timestamp of the last successful send.
+        self._q: queue.Queue[tuple[str, str, dict]] = queue.Queue(
+            maxsize=settings.mq_max_size,
+        )
         self._last_send: dict[str, float] = {}
         self._lock = threading.Lock()
+        self._queue_lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self._retry = RetryPolicy(max_retries=settings.mq_max_retries)
+        self._breaker = CircuitBreaker(
+            threshold=settings.mq_circuit_breaker_threshold,
+            cooldown_seconds=settings.mq_circuit_breaker_cooldown_seconds,
+        )
+        self._warned_high_water = False
 
     def start(self) -> None:
         """Start the background sender thread."""
@@ -52,8 +171,9 @@ class MessageQueue:
         log.info("MessageQueue  started")
 
     def depth(self) -> int:
-        """Approximate number of messages waiting to be sent (see ``queue.Queue.qsize``)."""
-        return self._q.qsize()
+        """Approximate number of messages waiting to send."""
+        with self._queue_lock:
+            return self._q.qsize()
 
     def health_fields(self) -> dict[str, Any]:
         """Metrics for the ``/health`` endpoint (merged by ``__main__``)."""
@@ -65,21 +185,52 @@ class MessageQueue:
             "mq_depth": d,
             "mq_max_size": m,
             "mq_utilization": round(utilization, 4),
-            "mq_circuit_state": "closed",
+            "mq_circuit_state": self._breaker.state.value,
         }
 
-    def enqueue(self, channel: str, text: str, **kwargs) -> None:
-        """Queue a ``chat.postMessage`` for *channel* (or user id for DMs)."""
-        from .config import settings
-
-        self._q.put((channel, text, kwargs))
-        depth = self._q.qsize()
-        if depth >= settings.mq_backpressure_threshold:
+    def enqueue(self, channel: str, text: str, **kwargs) -> bool:
+        """Queue a ``chat.postMessage``; return False when the circuit breaker rejects."""
+        if not self._breaker.allow_send():
             log.warning(
-                "MQ-BACKPRESSURE  depth=%d  threshold=%d",
-                depth,
-                settings.mq_backpressure_threshold,
+                "MQ  enqueue-rejected  circuit=open  %s  %s",
+                _redact_channel(channel),
+                _payload_meta(text, kwargs),
             )
+            return False
+
+        item = (channel, text, kwargs)
+        max_size = settings.mq_max_size
+        with self._queue_lock:
+            while True:
+                try:
+                    self._q.put_nowait(item)
+                    break
+                except queue.Full:
+                    try:
+                        dropped_ch, dropped_text, dropped_kwargs = self._q.get_nowait()
+                        log.warning(
+                            "MQ  drop-oldest  %s  %s",
+                            _redact_channel(dropped_ch),
+                            _payload_meta(dropped_text, dropped_kwargs),
+                        )
+                    except queue.Empty:
+                        # Consumer may have taken an item between Full and get_nowait; retry put.
+                        continue
+            if max_size > 0:
+                depth = self._q.qsize()
+                high = 0.8 * max_size
+                low = 0.7 * max_size
+                if depth >= high and not self._warned_high_water:
+                    log.warning(
+                        "MQ  high-water  depth=%d  max=%d  utilization=%.0f%%",
+                        depth,
+                        max_size,
+                        100.0 * depth / max_size,
+                    )
+                    self._warned_high_water = True
+                elif depth < low:
+                    self._warned_high_water = False
+        return True
 
     def _run(self) -> None:
         while True:
@@ -99,8 +250,30 @@ class MessageQueue:
         if wait > 0:
             time.sleep(wait)
 
+    def _dead_letter(
+        self,
+        channel: str,
+        text: str,
+        *,
+        reason: str,
+        attempts: int = 0,
+        kwargs: dict | None = None,
+    ) -> None:
+        log.error(
+            "MQ-DEAD-LETTER  %s  reason=%s  attempts=%d  %s",
+            _redact_channel(channel),
+            reason,
+            attempts,
+            _payload_meta(text, kwargs),
+        )
+
     def _send_with_retry(self, channel: str, text: str, kwargs: dict) -> None:
-        while True:
+        if not self._breaker.allow_send():
+            self._dead_letter(channel, text, reason="circuit_open", kwargs=kwargs)
+            return
+
+        max_attempts = self._retry.max_retries + 1
+        for attempt in range(max_attempts):
             try:
                 self._app.client.chat_postMessage(
                     channel=channel,
@@ -111,24 +284,45 @@ class MessageQueue:
                 )
                 with self._lock:
                     self._last_send[channel] = time.monotonic()
+                self._breaker.record_success()
                 return
             except SlackApiError as exc:
                 if exc.response.status_code == 429:
-                    retry_after = int(exc.response.headers.get("Retry-After", "5"))
+                    if attempt >= self._retry.max_retries:
+                        self._dead_letter(
+                            channel,
+                            text,
+                            reason="retry_exhausted",
+                            attempts=attempt + 1,
+                            kwargs=kwargs,
+                        )
+                        self._breaker.record_failure()
+                        return
+                    retry_after = _parse_retry_after(
+                        exc.response.headers.get("Retry-After", "5"),
+                    )
                     log.warning(
-                        "MQ  429 rate-limited  channel=%s  retry_after=%ds",
-                        channel,
+                        "MQ  429 rate-limited  %s  retry_after=%ds  attempt=%d",
+                        _redact_channel(channel),
                         retry_after,
+                        attempt + 1,
                     )
                     time.sleep(retry_after)
-                    # Re-throttle per-channel timer after sleeping
                     with self._lock:
                         self._last_send[channel] = time.monotonic()
                 else:
-                    log.exception("MQ  send-fail  channel=%s", channel)
+                    log.exception(
+                        "MQ  send-fail  %s",
+                        _redact_channel(channel),
+                    )
+                    self._breaker.record_failure()
                     return
             except Exception:
-                log.exception("MQ  send-fail  channel=%s", channel)
+                log.exception(
+                    "MQ  send-fail  %s",
+                    _redact_channel(channel),
+                )
+                self._breaker.record_failure()
                 return
 
 
@@ -228,7 +422,8 @@ def notify_channel(app: App, result: PollResult, mq: MessageQueue) -> None:
         len(other_hits),
     )
     for batch in batches:
-        mq.enqueue(channel, batch)
+        if not mq.enqueue(channel, batch):
+            _log_enqueue_rejected("notify_channel")
 
 
 # ── Per-user DM notifications ─────────────────────────────────────────────────
@@ -269,7 +464,8 @@ def notify_users(app: App, result: PollResult, mq: MessageQueue) -> None:
             len(matches.probe_hits),
         )
         for batch in batches:
-            mq.enqueue(user_id, batch)
+            if not mq.enqueue(user_id, batch):
+                _log_enqueue_rejected("notify_users")
 
 
 def _batch_lines(lines: list[str], max_len: int) -> list[str]:
@@ -501,7 +697,8 @@ def enqueue_startup_status(
     channel = settings.notification_channel
     if not channel:
         return
-    mq.enqueue(channel, format_status_message(state, paper_count_fn))
+    if not mq.enqueue(channel, format_status_message(state, paper_count_fn)):
+        _log_enqueue_rejected("enqueue_startup_status")
 
 
 def _handle_version(say, reply_opts: dict) -> None:
