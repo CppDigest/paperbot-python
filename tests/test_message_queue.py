@@ -147,9 +147,10 @@ class TestMessageQueueDirect:
     def test_circuit_breaker_half_open_recovery(self, mq_settings, caplog):
         app = MagicMock()
         mq = MessageQueue(app)
-        mq._breaker._state = CircuitState.OPEN
-        mq._breaker._opened_at = 1000.0
-        mq._breaker._consecutive_failures = cfg.settings.mq_circuit_breaker_threshold
+        with mq._breaker._lock:
+            mq._breaker._state = CircuitState.OPEN
+            mq._breaker._opened_at = 1000.0
+            mq._breaker._consecutive_failures = cfg.settings.mq_circuit_breaker_threshold
 
         mono = [1000.0]
 
@@ -173,7 +174,8 @@ class TestMessageQueueDirect:
         app = MagicMock()
         app.client.chat_postMessage.side_effect = _slack_error(500)
         mq = MessageQueue(app)
-        mq._breaker._state = CircuitState.HALF_OPEN
+        with mq._breaker._lock:
+            mq._breaker._state = CircuitState.HALF_OPEN
 
         with patch.object(mq, "_throttle"):
             mq._send_with_retry("C1", "fail probe", {})
@@ -261,14 +263,35 @@ class TestMessageQueueBounded:
     def test_enqueue_rejected_when_circuit_open(self, mq_settings, caplog):
         app = MagicMock()
         mq = MessageQueue(app)
-        mq._breaker._state = CircuitState.OPEN
-        mq._breaker._opened_at = time.monotonic()
+        with mq._breaker._lock:
+            mq._breaker._state = CircuitState.OPEN
+            mq._breaker._opened_at = time.monotonic()
 
         with caplog.at_level(logging.WARNING):
             assert mq.enqueue("C1", "blocked") is False
 
         assert mq.depth() == 0
         assert any("enqueue-rejected" in r.message for r in caplog.records)
+
+    def test_enqueue_accepts_after_cooldown_expires(self, mq_settings):
+        mq = MessageQueue(MagicMock())
+        with mq._breaker._lock:
+            mq._breaker._state = CircuitState.OPEN
+            mq._breaker._opened_at = 1000.0
+
+        with patch("paperscout.scout.time.monotonic", return_value=1011.0):
+            assert mq.enqueue("C1", "after cooldown") is True
+        assert mq.depth() == 1
+
+    def test_health_fields_circuit_state_open_after_trip(self, mq_settings, caplog):
+        app = MagicMock()
+        app.client.chat_postMessage.side_effect = _slack_error(500)
+        mq = MessageQueue(app)
+        with patch.object(mq, "_throttle"):
+            with caplog.at_level(logging.ERROR):
+                mq._send_with_retry("C1", "a", {})
+                mq._send_with_retry("C1", "b", {})
+        assert mq.health_fields()["mq_circuit_state"] == "open"
 
     def test_health_fields_reports_depth_and_utilization(self, mq_settings):
         app = MagicMock()
@@ -286,11 +309,11 @@ class TestMessageQueueBounded:
         app = MagicMock()
         mq = MessageQueue(app)
         threshold = int(0.8 * cfg.settings.mq_max_size)
-        for i in range(threshold):
+        for i in range(threshold - 1):
             mq.enqueue("C", f"m{i}")
 
         with caplog.at_level(logging.WARNING):
-            mq.enqueue("C", "tip")
+            mq.enqueue("C", "tip-over")
 
         assert any("high-water" in r.message for r in caplog.records)
 

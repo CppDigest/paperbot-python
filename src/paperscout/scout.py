@@ -51,6 +51,22 @@ def _payload_meta(text: str, kwargs: dict | None = None) -> str:
     return " ".join(parts)
 
 
+def _parse_retry_after(raw: str | None) -> int:
+    """Parse Slack ``Retry-After`` (seconds only); default 5 on invalid values."""
+    if raw is None:
+        return 5
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        log.warning("MQ  invalid-retry-after  value=%r  using=5s", raw)
+        return 5
+
+
+def _log_enqueue_rejected(context: str) -> None:
+    """Caller-side hint when ``enqueue()`` returns False (circuit already logged in MQ)."""
+    log.warning("MQ  notify-enqueue-rejected  context=%s", context)
+
+
 class CircuitState(str, Enum):
     CLOSED = "closed"
     OPEN = "open"
@@ -74,32 +90,38 @@ class CircuitBreaker:
     ) -> None:
         self._threshold = threshold
         self._cooldown_seconds = cooldown_seconds
+        self._lock = threading.Lock()
         self._state = CircuitState.CLOSED
         self._consecutive_failures = 0
         self._opened_at: float | None = None
 
     @property
     def state(self) -> CircuitState:
-        return self._state
+        with self._lock:
+            return self._state
 
     @property
     def consecutive_failures(self) -> int:
-        return self._consecutive_failures
+        with self._lock:
+            return self._consecutive_failures
 
     def record_success(self) -> None:
-        self._consecutive_failures = 0
-        self._state = CircuitState.CLOSED
-        self._opened_at = None
+        with self._lock:
+            self._consecutive_failures = 0
+            self._state = CircuitState.CLOSED
+            self._opened_at = None
 
     def record_failure(self) -> None:
-        self._consecutive_failures += 1
-        if self._state == CircuitState.HALF_OPEN:
-            self._trip()
-            return
-        if self._consecutive_failures >= self._threshold:
-            self._trip()
+        with self._lock:
+            self._consecutive_failures += 1
+            if self._state == CircuitState.HALF_OPEN:
+                self._trip_locked()
+                return
+            if self._consecutive_failures >= self._threshold:
+                self._trip_locked()
 
-    def _trip(self) -> None:
+    def _trip_locked(self) -> None:
+        """Trip to OPEN; caller must hold ``_lock``."""
         self._state = CircuitState.OPEN
         self._opened_at = time.monotonic()
         log.error(
@@ -110,19 +132,17 @@ class CircuitBreaker:
 
     def allow_send(self) -> bool:
         """Return whether a send attempt may proceed (may transition OPEN → HALF_OPEN)."""
-        if self._state == CircuitState.CLOSED:
-            return True
-        if self._state == CircuitState.HALF_OPEN:
-            return True
-        assert self._state == CircuitState.OPEN
-        if self._opened_at is None:
-            return True
-        elapsed = time.monotonic() - self._opened_at
-        if elapsed >= self._cooldown_seconds:
-            self._state = CircuitState.HALF_OPEN
-            log.info("MQ-CIRCUIT-HALF-OPEN  probing after cooldown")
-            return True
-        return False
+        with self._lock:
+            if self._state in (CircuitState.CLOSED, CircuitState.HALF_OPEN):
+                return True
+            if self._opened_at is None:
+                return True
+            elapsed = time.monotonic() - self._opened_at
+            if elapsed >= self._cooldown_seconds:
+                self._state = CircuitState.HALF_OPEN
+                log.info("MQ-CIRCUIT-HALF-OPEN  probing after cooldown")
+                return True
+            return False
 
 
 class MessageQueue:
@@ -165,7 +185,7 @@ class MessageQueue:
             "mq_depth": d,
             "mq_max_size": m,
             "mq_utilization": round(utilization, 4),
-            "mq_circuit_state": "closed",
+            "mq_circuit_state": self._breaker.state.value,
         }
 
     def enqueue(self, channel: str, text: str, **kwargs) -> bool:
@@ -181,37 +201,35 @@ class MessageQueue:
         item = (channel, text, kwargs)
         max_size = settings.mq_max_size
         with self._queue_lock:
-            if self._q.qsize() >= max_size:
+            while True:
                 try:
-                    dropped_ch, dropped_text, dropped_kwargs = self._q.get_nowait()
+                    self._q.put_nowait(item)
+                    break
+                except queue.Full:
+                    try:
+                        dropped_ch, dropped_text, dropped_kwargs = self._q.get_nowait()
+                        log.warning(
+                            "MQ  drop-oldest  %s  %s",
+                            _redact_channel(dropped_ch),
+                            _payload_meta(dropped_text, dropped_kwargs),
+                        )
+                    except queue.Empty:
+                        break
+            if max_size > 0:
+                depth = self._q.qsize()
+                high = 0.8 * max_size
+                low = 0.7 * max_size
+                if depth >= high and not self._warned_high_water:
                     log.warning(
-                        "MQ  drop-oldest  %s  %s",
-                        _redact_channel(dropped_ch),
-                        _payload_meta(dropped_text, dropped_kwargs),
+                        "MQ  high-water  depth=%d  max=%d  utilization=%.0f%%",
+                        depth,
+                        max_size,
+                        100.0 * depth / max_size,
                     )
-                except queue.Empty:
-                    pass
-            self._q.put_nowait(item)
-        self._maybe_warn_high_water()
+                    self._warned_high_water = True
+                elif depth < low:
+                    self._warned_high_water = False
         return True
-
-    def _maybe_warn_high_water(self) -> None:
-        max_size = settings.mq_max_size
-        if max_size <= 0:
-            return
-        depth = self.depth()
-        high = 0.8 * max_size
-        low = 0.7 * max_size
-        if depth >= high and not self._warned_high_water:
-            log.warning(
-                "MQ  high-water  depth=%d  max=%d  utilization=%.0f%%",
-                depth,
-                max_size,
-                100.0 * depth / max_size,
-            )
-            self._warned_high_water = True
-        elif depth < low:
-            self._warned_high_water = False
 
     def _run(self) -> None:
         while True:
@@ -279,10 +297,12 @@ class MessageQueue:
                         )
                         self._breaker.record_failure()
                         return
-                    retry_after = int(exc.response.headers.get("Retry-After", "5"))
+                    retry_after = _parse_retry_after(
+                        exc.response.headers.get("Retry-After", "5"),
+                    )
                     log.warning(
-                        "MQ  429 rate-limited  channel=%s  retry_after=%ds  attempt=%d",
-                        channel,
+                        "MQ  429 rate-limited  %s  retry_after=%ds  attempt=%d",
+                        _redact_channel(channel),
                         retry_after,
                         attempt + 1,
                     )
@@ -290,11 +310,17 @@ class MessageQueue:
                     with self._lock:
                         self._last_send[channel] = time.monotonic()
                 else:
-                    log.exception("MQ  send-fail  channel=%s", channel)
+                    log.exception(
+                        "MQ  send-fail  %s",
+                        _redact_channel(channel),
+                    )
                     self._breaker.record_failure()
                     return
             except Exception:
-                log.exception("MQ  send-fail  channel=%s", channel)
+                log.exception(
+                    "MQ  send-fail  %s",
+                    _redact_channel(channel),
+                )
                 self._breaker.record_failure()
                 return
 
@@ -395,7 +421,8 @@ def notify_channel(app: App, result: PollResult, mq: MessageQueue) -> None:
         len(other_hits),
     )
     for batch in batches:
-        mq.enqueue(channel, batch)
+        if not mq.enqueue(channel, batch):
+            _log_enqueue_rejected("notify_channel")
 
 
 # ── Per-user DM notifications ─────────────────────────────────────────────────
@@ -436,7 +463,8 @@ def notify_users(app: App, result: PollResult, mq: MessageQueue) -> None:
             len(matches.probe_hits),
         )
         for batch in batches:
-            mq.enqueue(user_id, batch)
+            if not mq.enqueue(user_id, batch):
+                _log_enqueue_rejected("notify_users")
 
 
 def _batch_lines(lines: list[str], max_len: int) -> list[str]:
@@ -668,7 +696,8 @@ def enqueue_startup_status(
     channel = settings.notification_channel
     if not channel:
         return
-    mq.enqueue(channel, format_status_message(state, paper_count_fn))
+    if not mq.enqueue(channel, format_status_message(state, paper_count_fn)):
+        _log_enqueue_rejected("enqueue_startup_status")
 
 
 def _handle_version(say, reply_opts: dict) -> None:
