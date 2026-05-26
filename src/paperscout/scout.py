@@ -6,7 +6,9 @@ import logging
 import queue
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 
 from slack_bolt import App
@@ -33,17 +35,101 @@ SLACK_MAX_TEXT = 3000
 
 # ── Message Queue ─────────────────────────────────────────────────────────────
 
+_DEAD_LETTER_TEXT_MAX = 200
+
+
+class CircuitState(str, Enum):
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+
+@dataclass(frozen=True, slots=True)
+class RetryPolicy:
+    """Per-message 429 retry cap (from settings)."""
+
+    max_retries: int
+
+
+class CircuitBreaker:
+    """Consecutive-failure circuit breaker with cooldown and half-open probe."""
+
+    def __init__(
+        self,
+        threshold: int,
+        cooldown_seconds: int,
+    ) -> None:
+        self._threshold = threshold
+        self._cooldown_seconds = cooldown_seconds
+        self._state = CircuitState.CLOSED
+        self._consecutive_failures = 0
+        self._opened_at: float | None = None
+
+    @property
+    def state(self) -> CircuitState:
+        return self._state
+
+    @property
+    def consecutive_failures(self) -> int:
+        return self._consecutive_failures
+
+    def record_success(self) -> None:
+        self._consecutive_failures = 0
+        self._state = CircuitState.CLOSED
+        self._opened_at = None
+
+    def record_failure(self) -> None:
+        self._consecutive_failures += 1
+        if self._state == CircuitState.HALF_OPEN:
+            self._trip()
+            return
+        if self._consecutive_failures >= self._threshold:
+            self._trip()
+
+    def _trip(self) -> None:
+        self._state = CircuitState.OPEN
+        self._opened_at = time.monotonic()
+        log.error(
+            "MQ-CIRCUIT-OPEN  failures=%d  cooldown=%ds",
+            self._consecutive_failures,
+            self._cooldown_seconds,
+        )
+
+    def allow_send(self) -> bool:
+        """Return whether a send attempt may proceed (may transition OPEN → HALF_OPEN)."""
+        if self._state == CircuitState.CLOSED:
+            return True
+        if self._state == CircuitState.HALF_OPEN:
+            return True
+        assert self._state == CircuitState.OPEN
+        if self._opened_at is None:
+            return True
+        elapsed = time.monotonic() - self._opened_at
+        if elapsed >= self._cooldown_seconds:
+            self._state = CircuitState.HALF_OPEN
+            log.info("MQ-CIRCUIT-HALF-OPEN  probing after cooldown")
+            return True
+        return False
+
 
 class MessageQueue:
-    """Background queue for Slack posts: per-channel throttle and 429 retry-after."""
+    """Background queue for Slack posts: throttle, capped 429 retries, circuit breaker."""
 
     def __init__(self, app: App):
         self._app = app
-        self._q: queue.Queue[tuple[str, str, dict]] = queue.Queue()
-        # Maps channel → Unix timestamp of the last successful send.
+        self._q: queue.Queue[tuple[str, str, dict]] = queue.Queue(
+            maxsize=settings.mq_max_size,
+        )
         self._last_send: dict[str, float] = {}
         self._lock = threading.Lock()
+        self._queue_lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self._retry = RetryPolicy(max_retries=settings.mq_max_retries)
+        self._breaker = CircuitBreaker(
+            threshold=settings.mq_circuit_breaker_threshold,
+            cooldown_seconds=settings.mq_circuit_breaker_cooldown_seconds,
+        )
+        self._warned_high_water = False
 
     def start(self) -> None:
         """Start the background sender thread."""
@@ -52,34 +138,65 @@ class MessageQueue:
         log.info("MessageQueue  started")
 
     def depth(self) -> int:
-        """Approximate number of messages waiting to be sent (see ``queue.Queue.qsize``)."""
-        return self._q.qsize()
+        """Approximate number of messages waiting to send."""
+        with self._queue_lock:
+            return self._q.qsize()
 
     def health_fields(self) -> dict[str, Any]:
-        """Metrics for the ``/health`` endpoint (merged by ``__main__``)."""
+        """Metrics for the /health endpoint (merged by ``__main__`` when PR A is present)."""
         d = self.depth()
         m = settings.mq_max_size
-        utilization = (d / m) if m else 0.0
-        utilization = min(1.0, max(0.0, utilization))
         return {
             "mq_depth": d,
             "mq_max_size": m,
-            "mq_utilization": round(utilization, 4),
-            "mq_circuit_state": "closed",
+            "mq_utilization": round(d / m, 4) if m else 0.0,
+            "mq_circuit_state": self._breaker.state.value,
         }
 
-    def enqueue(self, channel: str, text: str, **kwargs) -> None:
-        """Queue a ``chat.postMessage`` for *channel* (or user id for DMs)."""
-        from .config import settings
-
-        self._q.put((channel, text, kwargs))
-        depth = self._q.qsize()
-        if depth >= settings.mq_backpressure_threshold:
+    def enqueue(self, channel: str, text: str, **kwargs) -> bool:
+        """Queue a ``chat.postMessage``; return False when the circuit breaker rejects."""
+        if self._breaker.state == CircuitState.OPEN:
             log.warning(
-                "MQ-BACKPRESSURE  depth=%d  threshold=%d",
-                depth,
-                settings.mq_backpressure_threshold,
+                "MQ  enqueue-rejected  circuit=open  channel=%s",
+                channel,
             )
+            return False
+
+        item = (channel, text, kwargs)
+        max_size = settings.mq_max_size
+        with self._queue_lock:
+            if self._q.qsize() >= max_size:
+                try:
+                    dropped_ch, dropped_text, _ = self._q.get_nowait()
+                    log.warning(
+                        "MQ  drop-oldest  channel=%s  text=%r",
+                        dropped_ch,
+                        dropped_text[:80],
+                    )
+                except queue.Empty:
+                    pass
+            self._q.put_nowait(item)
+
+        self._maybe_warn_high_water()
+        return True
+
+    def _maybe_warn_high_water(self) -> None:
+        max_size = settings.mq_max_size
+        if max_size <= 0:
+            return
+        depth = self.depth()
+        high = 0.8 * max_size
+        low = 0.7 * max_size
+        if depth >= high and not self._warned_high_water:
+            log.warning(
+                "MQ  high-water  depth=%d  max=%d  utilization=%.0f%%",
+                depth,
+                max_size,
+                100.0 * depth / max_size,
+            )
+            self._warned_high_water = True
+        elif depth < low:
+            self._warned_high_water = False
 
     def _run(self) -> None:
         while True:
@@ -99,8 +216,32 @@ class MessageQueue:
         if wait > 0:
             time.sleep(wait)
 
+    def _dead_letter(
+        self,
+        channel: str,
+        text: str,
+        *,
+        reason: str,
+        attempts: int = 0,
+    ) -> None:
+        summary = text[:_DEAD_LETTER_TEXT_MAX]
+        if len(text) > _DEAD_LETTER_TEXT_MAX:
+            summary += "…"
+        log.error(
+            "MQ-DEAD-LETTER  channel=%s  reason=%s  attempts=%d  text=%r",
+            channel,
+            reason,
+            attempts,
+            summary,
+        )
+
     def _send_with_retry(self, channel: str, text: str, kwargs: dict) -> None:
-        while True:
+        if not self._breaker.allow_send():
+            self._dead_letter(channel, text, reason="circuit_open")
+            return
+
+        max_attempts = self._retry.max_retries + 1
+        for attempt in range(max_attempts):
             try:
                 self._app.client.chat_postMessage(
                     channel=channel,
@@ -111,24 +252,36 @@ class MessageQueue:
                 )
                 with self._lock:
                     self._last_send[channel] = time.monotonic()
+                self._breaker.record_success()
                 return
             except SlackApiError as exc:
                 if exc.response.status_code == 429:
+                    if attempt >= self._retry.max_retries:
+                        self._dead_letter(
+                            channel,
+                            text,
+                            reason="retry_exhausted",
+                            attempts=attempt + 1,
+                        )
+                        self._breaker.record_failure()
+                        return
                     retry_after = int(exc.response.headers.get("Retry-After", "5"))
                     log.warning(
-                        "MQ  429 rate-limited  channel=%s  retry_after=%ds",
+                        "MQ  429 rate-limited  channel=%s  retry_after=%ds  attempt=%d",
                         channel,
                         retry_after,
+                        attempt + 1,
                     )
                     time.sleep(retry_after)
-                    # Re-throttle per-channel timer after sleeping
                     with self._lock:
                         self._last_send[channel] = time.monotonic()
                 else:
                     log.exception("MQ  send-fail  channel=%s", channel)
+                    self._breaker.record_failure()
                     return
             except Exception:
                 log.exception("MQ  send-fail  channel=%s", channel)
+                self._breaker.record_failure()
                 return
 
 

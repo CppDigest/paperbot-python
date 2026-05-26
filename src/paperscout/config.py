@@ -107,6 +107,12 @@ class Settings(BaseSettings):
     # Days of log files to keep (one file per day).
     log_retention_days: int = 7
 
+    # -- Message queue (Slack outbound) --
+    mq_max_retries: int = Field(default=8, ge=1)
+    mq_circuit_breaker_threshold: int = Field(default=5, ge=1)
+    mq_circuit_breaker_cooldown_seconds: int = Field(default=60, ge=1)
+    mq_max_size: int = Field(default=1000, ge=1)
+
     @model_validator(mode="after")
     def _require_slack_credentials_unless_testing(self) -> Settings:
         """Slack tokens must be set for real runs; pytest sets ``_PAPERSCOUT_TESTING=1``."""

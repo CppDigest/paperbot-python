@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `MessageQueue`: capped HTTP 429 retries, circuit breaker (CLOSED/OPEN/HALF_OPEN) with operator-visible trip logging, dead-letter logging on exhaustion, bounded queue with drop-oldest overflow, `enqueue()` bool backpressure signal, and `health_fields()` / `depth()` for `/health` (wired when PR A merges).
+- Config: `mq_max_retries`, `mq_circuit_breaker_threshold`, `mq_circuit_breaker_cooldown_seconds`, `mq_max_size`.
 - Discriminated ISO probe cycle outcomes (`CycleResult`: success / empty / failed) with distinct logging and `/health` fields (`last_cycle_status`, `last_cycle_error`).
 - Atomic `SchedulerSnapshot` for `/health` scheduler extras (`last_updated`, `poll_count`, probe stats) published under a lock from `Scheduler.health_snapshot()`.
 - Post the same Slack **status** summary as the interactive command to `NOTIFICATION_CHANNEL` once when the process starts (when that channel is configured).
