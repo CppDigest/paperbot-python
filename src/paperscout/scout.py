@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import queue
 import threading
@@ -35,7 +36,19 @@ SLACK_MAX_TEXT = 3000
 
 # ── Message Queue ─────────────────────────────────────────────────────────────
 
-_DEAD_LETTER_TEXT_MAX = 200
+
+def _redact_channel(channel: str) -> str:
+    """Short stable token for logs (no raw Slack channel/user id)."""
+    digest = hashlib.sha256(channel.encode()).hexdigest()
+    return f"ch:{digest[:8]}"
+
+
+def _payload_meta(text: str, kwargs: dict | None = None) -> str:
+    """Log-safe payload summary (length and kwargs keys only)."""
+    parts = [f"text_len={len(text)}"]
+    if kwargs:
+        parts.append(f"kwargs_keys={','.join(sorted(kwargs))}")
+    return " ".join(parts)
 
 
 class CircuitState(str, Enum):
@@ -155,10 +168,11 @@ class MessageQueue:
 
     def enqueue(self, channel: str, text: str, **kwargs) -> bool:
         """Queue a ``chat.postMessage``; return False when the circuit breaker rejects."""
-        if self._breaker.state == CircuitState.OPEN:
+        if not self._breaker.allow_send():
             log.warning(
-                "MQ  enqueue-rejected  circuit=open  channel=%s",
-                channel,
+                "MQ  enqueue-rejected  circuit=open  %s  %s",
+                _redact_channel(channel),
+                _payload_meta(text, kwargs),
             )
             return False
 
@@ -167,11 +181,11 @@ class MessageQueue:
         with self._queue_lock:
             if self._q.qsize() >= max_size:
                 try:
-                    dropped_ch, dropped_text, _ = self._q.get_nowait()
+                    dropped_ch, dropped_text, dropped_kwargs = self._q.get_nowait()
                     log.warning(
-                        "MQ  drop-oldest  channel=%s  text=%r",
-                        dropped_ch,
-                        dropped_text[:80],
+                        "MQ  drop-oldest  %s  %s",
+                        _redact_channel(dropped_ch),
+                        _payload_meta(dropped_text, dropped_kwargs),
                     )
                 except queue.Empty:
                     pass
@@ -223,21 +237,19 @@ class MessageQueue:
         *,
         reason: str,
         attempts: int = 0,
+        kwargs: dict | None = None,
     ) -> None:
-        summary = text[:_DEAD_LETTER_TEXT_MAX]
-        if len(text) > _DEAD_LETTER_TEXT_MAX:
-            summary += "…"
         log.error(
-            "MQ-DEAD-LETTER  channel=%s  reason=%s  attempts=%d  text=%r",
-            channel,
+            "MQ-DEAD-LETTER  %s  reason=%s  attempts=%d  %s",
+            _redact_channel(channel),
             reason,
             attempts,
-            summary,
+            _payload_meta(text, kwargs),
         )
 
     def _send_with_retry(self, channel: str, text: str, kwargs: dict) -> None:
         if not self._breaker.allow_send():
-            self._dead_letter(channel, text, reason="circuit_open")
+            self._dead_letter(channel, text, reason="circuit_open", kwargs=kwargs)
             return
 
         max_attempts = self._retry.max_retries + 1
@@ -262,6 +274,7 @@ class MessageQueue:
                             text,
                             reason="retry_exhausted",
                             attempts=attempt + 1,
+                            kwargs=kwargs,
                         )
                         self._breaker.record_failure()
                         return
