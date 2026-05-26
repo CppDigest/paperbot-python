@@ -38,6 +38,7 @@ class TestMessageQueueDirect:
                 mq.enqueue(f"C{i}", "x")
             fields = mq.health_fields()
         assert fields["mq_depth"] == 5
+        assert fields["mq_max_size"] == 2
         assert fields["mq_utilization"] == 1.0
 
     def test_send_success_updates_last_send(self):

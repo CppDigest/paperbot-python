@@ -51,11 +51,22 @@ def _mq_health_fields(mq: MessageQueue) -> dict:
                 exc,
                 exc_info=True,
             )
-            return {"mq_depth": mq.depth()}
+            try:
+                return {"mq_depth": mq.depth()}
+            except Exception:
+                log.warning(
+                    "health: mq.depth() fallback failed; omitting MQ fields",
+                    exc_info=True,
+                )
+                return {}
         if isinstance(raw, dict):
             return raw
         log.warning("health: mq.health_fields() returned non-dict, using mq_depth only")
-    return {"mq_depth": mq.depth()}
+    try:
+        return {"mq_depth": mq.depth()}
+    except Exception:
+        log.warning("health: mq.depth() failed; omitting MQ fields", exc_info=True)
+        return {}
 
 
 def _merge_extra_health_fields(
